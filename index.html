@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR 互動 - 影片轉攝影視窗</title>
+
+  <!-- A-Frame + MindAR + Mediapipe -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <div id="ar-viewport">
+
+    <!-- 🎬 開始畫面（第一段待機動畫） -->
+    <div id="intro-container" class="full-screen-overlay">
+      <video
+        id="intro-video"
+        src="Animation1.mp4"
+        autoplay
+        muted
+        playsinline
+        loop
+        class="media-content">
+      </video>
+    </div>
+
+    <!-- 🪞 AR Camera（MindAR） -->
+    <a-scene 
+      id="ar-scene"
+      mindar-face="uiLoading: no; uiScanning: no; disableFaceMesh: true;"
+      vr-mode-ui="enabled: false"
+      color-space="sRGB"
+      renderer="colorManagement: true, physicallyCorrectLights: true">
+      <a-camera active="false"></a-camera>
+    </a-scene>
+
+    <!-- 02 對準方框 -->
+    <div id="camera-overlay">
+      <img src="image/02.png" alt="">
+    </div>
+
+    <!-- 03 開始掃描（倒數 + 橫桿） -->
+    <div id="scan-overlay">
+      <img id="scan-bg" src="image/03.png" alt="開始掃描">
+      <div id="scan-countdown">3</div>
+      <div id="scan-bar"></div>
+      <div id="scan-bar-2"></div>
+    </div>
+
+    <!-- 04 正在生成評分表 -->
+    <div id="detect-finish-overlay">
+      <img id="ui-detect-finish" src="image/04.png" alt="">
+    </div>
+
+    <!-- 05 評分表 -->
+    <div id="rating-overlay">
+      <div class="rating-wrap">
+        <img id="ui-rating" src="image/05.png" alt="">
+      </div>
+    </div>
+
+    <!-- 06 跳出視窗1（OFF / NEXT） -->
+    <div id="low-score-overlay" class="overlay">
+      <img id="ui-low-score" src="image/Windows1.png" alt="跳出視窗1">
+
+      <!-- 原本 OFF / NEXT 的熱區（如果有用到 click 的話） -->
+      <button id="btn-off"  class="choice-btn choice-off"></button>
+      <button id="btn-next" class="choice-btn choice-next"></button>
+
+      <!-- ✅ 新增：YES / NO 選擇區（給視覺用） -->
+      <div class="popup-choices">
+        <button id="low-yes" class="choice-btn yes">
+          <span class="icon">👍</span>
+          <span class="label">YES</span>
+        </button>
+
+        <button id="low-no" class="choice-btn no">
+          <span class="icon">👎</span>
+          <span class="label">NO</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 08 跳出視窗2（OFF / NEXT） -->
+    <div id="popup2-overlay" class="overlay">
+      <img id="ui-popup2" src="image/Windows2.png" alt="跳出視窗2">
+      <button id="btn-popup2-off"  class="choice-btn choice-off"></button>
+      <button id="btn-popup2-next" class="choice-btn choice-next"></button>
+    </div>
+
+    <!-- 🎬 第二段待機動畫 -->
+    <div id="intro2-container" class="full-screen-overlay">
+      <video
+        id="intro2-video"
+        src="Animation2.mp4"
+        playsinline
+        class="media-content">
+      </video>
+    </div>
+
+  <!-- 07 濾鏡選擇頁 -->
+  <div id="filter-select-overlay">
+    <div class="phone">
+      <div class="camera-area">
+
+        <!-- ⭐ 美妝濾鏡 -->
+        <div id="mk-stage" class="stage">
+          <video id="mk-video" autoplay muted playsinline></video>
+          <canvas id="mk-canvas"></canvas>
+
+          <img src="image/frame.png" class="frame-overlay frame-makeup">
+
+          <div class="nav">
+            <div onclick="changeStyle(1)"><img src="image/bth.png"></div>
+            <div onclick="changeStyle(2)"><img src="image/bth.png"></div>
+            <div onclick="changeStyle(3)"><img src="image/bth.png"></div>
+            <div onclick="changeStyle(4)"><img src="image/bth.png"></div>
+            <div onclick="changeStyle(5)"><img src="image/bth.png"></div>
+          </div>
+        </div>
+
+        <!-- ⭐ 文字濾鏡 -->
+        <img id="filter-bg"   class="filter-bg">
+        <video id="filter-video" autoplay muted playsinline></video>
+        <img id="faceOverlay" class="face-overlay">
+
+        <img src="image/frame2.png" class="frame-overlay frame-text">
+      </div>  <!-- ← 關閉 .camera-area -->
+    </div>    <!-- ← 關閉 .phone -->
+  </div>
+
+<!-- 07：拍照打卡畫面 -->
+<div id="photo-finish-overlay">
+  <!-- 底層：美妝截圖（JS 用 uiPhotoFinish.src 塞進來） -->
+  <img
+    id="ui-photo-finish"
+    class="photo-finish-bg"
+    src=""
+    alt="snapshot"
+  />
+
+  <!-- 上層：07 的 UI / 手機框圖 -->
+  <img
+      id="ui-photo-frame"
+      class="photo-finish-frame"
+      src="image/07.png"
+      alt="photo frame"
+    />
+</div>
+
+    <!-- 07-2：OFF 路線專用打卡頁 -->
+    <div id="photo-off-overlay">
+      <img id="ui-photo-off" src="image/07-2.png" alt="">
+      <button id="btn-end-off" class="btn-main">結束體驗</button>
+    </div>
+
+    <!-- 09 跳出視窗3（YES / NO → IG 或返回） -->
+    <div id="popup3-overlay" class="overlay">
+      <img src="image/Windows3.png" class="popup-img" alt="popup3">
+
+      <div class="popup-choices">
+        <!-- 這兩顆的 id 要配合 JS：btn-popup3-off / btn-popup3-next -->
+        <button id="btn-popup3-off" class="choice-btn no">
+          <span class="icon">👎</span>
+          <span class="label">NO</span>
+        </button>
+
+        <button id="btn-popup3-next" class="choice-btn yes">
+          <span class="icon">👍</span>
+          <span class="label">YES</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 第 7 張：發文（假 IG 介面） -->
+    <div id="post-overlay">
+      <!-- 整個 IG 頁面的 文字-08 底圖 -->
+      <img id="post-bg" class="ig-page-bg" src="image/text2.png" alt="">
+      <div class="post-black-bg"></div>
+
+      <div class="ig-phone">
+        <div class="top-bar">
+          模範生 &gt;
+          <span>POST</span>
+        </div>
+
+        <!-- STORY 區 -->
+        <div class="stories">
+          <div class="story">
+            <div class="story-circle">
+              <img src="image/bth.png" class="img-normal">
+              <img src="image/red man.png" class="img-hover">
+            </div>
+            <div class="hover-tag">適合你</div>
+            <p>MODEL1</p>
+          </div>
+
+          <div class="story">
+            <div class="story-circle">
+              <img src="image/bth.png" class="img-normal">
+              <img src="image/red man.png" class="img-hover">
+            </div>
+            <div class="hover-tag">潛力股</div>
+            <p>MODEL2</p>
+          </div>
+
+          <div class="story">
+            <div class="story-circle">
+              <img src="image/bth.png" class="img-normal">
+              <img src="image/red man.png" class="img-hover">
+            </div>
+            <div class="hover-tag">高風險</div>
+            <p>MODEL3</p>
+          </div>
+
+          <div class="story">
+            <div class="story-circle">
+              <img src="image/bth.png" class="img-normal">
+              <img src="image/red man.png" class="img-hover">
+            </div>
+            <div class="hover-tag">推薦</div>
+            <p>MODEL4</p>
+          </div>
+
+          <!-- 手機框裡的「結束體驗」 -->
+          <button id="btn-end-post-ig" class="btn-main btn-end-ig">
+            結束體驗
+          </button>
+        </div>
+
+        <!-- 貼文區 -->
+        <div class="post">
+          <div class="post-header">
+            <img src="image/bth.png">
+            <div class="info">
+              <strong>MODEL1</strong><br>
+              <small style="color:#bbb;">2026/08/07</small>
+            </div>
+          </div>
+
+          <div class="post-img-wrap">
+            <!-- 這裡塞拍到的照片 -->
+            <img class="post-img" id="postImage">
+            <!-- 最終分數：21 分 當機特效 -->
+            <div class="glitch-score" id="glitchScore">最終分數：21分</div>
+          </div>
+
+          <div class="actions">
+            <span id="likeBtn">♡</span>
+            <span>💬</span>
+          </div>
+
+          <div class="likes-count" id="likesCount">0 likes</div>
+
+          <div class="comments" id="commentsList"></div>
+
+          <div class="comment-box">
+            <input type="text" id="commentInput" placeholder="留言……">
+            <button id="commentSendBtn">送出</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- IG 頁面外層的「結束體驗」 -->
+      <button id="btn-end-post">結束體驗</button>
+    </div>
+
+  </div> <!-- /#ar-viewport -->
+
+ <script src="script.js"></script>   <!-- Part1 + Hands + 07/08/09 flow -->
+ <script src="makeup.js"></script>        <!-- Part2 -->
+ <script src="textFilter.js"></script>    <!-- Part3 -->
+ <script src="post.js"></script>          <!-- IG + reset -->
+
+</body>
+</html>

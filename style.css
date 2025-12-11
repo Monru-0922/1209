@@ -1,0 +1,904 @@
+/* ===============================
+   Global
+=============================== */
+* {box-sizing: border-box;}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: black;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* 9:16 主視窗 */
+#ar-viewport {
+  width: 1080px;
+  height: 1920px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(var(--scale-factor, 1));
+  overflow: hidden;
+  background-color: black;
+}
+
+/* 讓 overlay 都吃滿畫布 */
+#camera-overlay,
+#scan-overlay,
+#detect-finish-overlay,
+#rating-overlay,
+#low-score-overlay,
+#filter-select-overlay,
+#photo-finish-overlay,
+#photo-off-overlay,
+#popup2-overlay,
+#popup3-overlay,
+#post-overlay,
+#intro2-container,
+.full-screen-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+/* 共用：兩種框的基本樣式 */
+.frame-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 美妝框 & 文字框：一開始都先關掉，由 JS 控制 */
+.frame-makeup,
+.frame-text {
+  display: none;
+}
+
+/* ===============================
+   開場影片
+=============================== */
+.full-screen-overlay {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.media-content {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 第二段待機動畫預設關掉 */
+#intro2-container {
+  display: none;
+}
+
+/* ===============================
+   AR Scene（MindAR）
+=============================== */
+#ar-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: none; /* 一開始先關掉 */
+  z-index: 1;
+}
+
+/* A-Frame canvas 強制滿版 */
+#ar-scene canvas,
+.a-canvas {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 1 !important;
+}
+
+/* ===============================
+   02：對準方框（主攝影 UI 框）
+=============================== */
+#camera-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#camera-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ===============================
+   掃描畫面：倒數 + 橫桿（疊在 04 上）
+=============================== */
+#scan-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 16;
+  pointer-events: none;
+}
+
+#scan-bg {
+  display: none;
+}
+
+/* 倒數數字：5 4 3 2 1 */
+#scan-countdown {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 180px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow:
+    0 0 12px rgba(0,0,0,0.8),
+    0 0 30px rgba(0,0,0,0.9);
+  letter-spacing: 10px;
+}
+
+/* 上下掃描的橫桿 */
+#scan-bar,
+#scan-bar-2 {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 20px rgba(255,255,255,0.8),
+    0 0 40px rgba(255,255,255,0.4);
+  opacity: 0;
+}
+
+/* ===============================
+   04：正在生成評分表
+=============================== */
+#detect-finish-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 15;
+}
+
+#detect-finish-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ===============================
+   05 評分表 + 06 跳出視窗1
+=============================== */
+#rating-overlay,
+#low-score-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+}
+
+#rating-overlay { z-index: 20; }
+#low-score-overlay { z-index: 21; }
+
+#rating-overlay img,
+#low-score-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* 05 / 07 共用按鈕樣式：右下白框 */
+.btn-main,
+.btn-outline-white {
+  position: absolute;
+  right: 50px;
+  bottom: 50px;
+  padding: 14px 36px;
+  border: 2px solid #fff;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  font-size: 32px;
+  letter-spacing: 3px;
+  cursor: pointer;
+  outline: none;
+}
+
+.btn-main:hover,
+.btn-outline-white:hover {
+  background: rgba(255,255,255,0.12);
+}
+
+/* 06 隱藏按鈕 click 區 */
+#low-score-overlay .choice-btn,
+#popup2-overlay .choice-btn,
+#popup3-overlay .choice-btn {
+  position: absolute;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 9999;
+}
+
+/* OFF 按鈕（左邊） */
+.choice-off {
+  left: 190px;
+  top: 1355px;
+  width: 300px;
+  height: 120px;
+}
+
+/* NEXT 按鈕（右邊） */
+.choice-next {
+  left: 590px;
+  top: 1355px;
+  width: 300px;
+  height: 120px;
+}
+
+/* ===============================
+   08 / 09 跳出視窗
+=============================== */
+#popup2-overlay,
+#popup3-overlay {
+   position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+  display: none;
+  pointer-events: auto;
+}
+
+#popup2-overlay img,
+#popup3-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* ===============================
+   濾鏡選擇畫面（濾鏡一 / 濾鏡二共用外框）
+=============================== */
+#filter-select-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 500;
+  background: #000;
+}
+
+/* 手機框 */
+#filter-select-overlay .phone {
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+/* 拍攝區：佔滿手機框 */
+.camera-area {
+  position: absolute;
+  inset: 0;
+}
+
+/* camera-area 裡的每個元素都鋪滿，靠 z-index 分層 */
+.camera-area > * {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* mk-video 只拿來給 FaceMesh 用，不顯示 */
+#mk-video {
+  opacity: 0;
+}
+
+/* 美妝結果畫在 mk-canvas 上，看得到 */
+#mk-canvas {
+  z-index: 2;
+}
+
+/* 額外光暈：眼睛 */
+.makeup-eyes {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 43% 40%, rgba(255,170,210,.38), transparent 26%),
+    radial-gradient(circle at 57% 40%, rgba(255,170,210,.38), transparent 26%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* 額外光暈：嘴唇 */
+.makeup-lips {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 64%, rgba(190,20,60,.55), transparent 22%),
+    radial-gradient(circle at 50% 66%, rgba(255,120,170,.45), transparent 28%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 7;
+}
+
+/* 文字濾鏡的三層：背景 / 影片 / PNG */
+#filter-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 3;   /* 背景 */
+}
+
+/* 鏡頭畫面 */
+#filter-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  z-index: 1;
+}
+
+/* 臉上的 文字-07 PNG */
+#faceOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+/* 文字濾鏡的框 */
+.frame-text {
+  z-index: 4;
+}
+
+
+/* ================================
+   下方濾鏡圓圈整排（濾鏡一）
+================================ */
+#filter-select-overlay .filters-wrapper {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 140px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1100;
+}
+
+#filter-select-overlay .filters-track {
+  display: flex;
+  gap: 70px;
+}
+
+#filter-select-overlay .filter-item {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transform: translateY(10px);
+}
+
+#filter-select-overlay .filter-thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 55%;
+}
+
+#filter-select-overlay .filter-item.active {
+  box-shadow: 0 0 0 4px #fff;
+}
+
+/* mk-stage 下方 5 顆小圖（若有用） */
+#mk-stage {
+  position: relative;
+}
+
+#mk-stage .nav {
+  position: absolute;
+  left: 50%;
+  bottom: 190px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 80px;
+  justify-content: center;
+  align-items: center;
+}
+
+#mk-stage .nav div {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#mk-stage .nav img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* ===============================
+   Makeup Good Model 版 UI
+=============================== */
+.stage {
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  transform-origin: top left;
+}
+
+.stage video,
+.stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 底部五顆圓形切換濾鏡按鈕（Good Model 版本 nav） */
+.nav {
+  position: absolute;
+  bottom: 170px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 59px;
+  pointer-events: auto;
+  z-index: 20;
+}
+
+.nav img {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  object-fit: cover;
+  pointer-events: auto;
+}
+
+/* ===============================
+   07：拍照打卡 overlay（即時截圖）
+=============================== */
+/* 07 拍照打卡 overlay：蓋滿 9:16 畫面 */
+#photo-finish-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;            /* JS 會改成 flex */
+  justify-content: center;
+  align-items: center;
+  z-index: 30;
+}
+
+/* 07 裡面的兩張圖（截圖 & 框）都鋪滿 */
+#photo-finish-overlay img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 底層：拍到的截圖 */
+#ui-photo-finish {
+  z-index: 1;
+}
+
+/* 上層：07 的 UI / 框 */
+#ui-photo-frame {
+  z-index: 2;
+  pointer-events: none;  /* 避免擋到按鈕 */
+}
+
+/* 右下角兩顆按鈕 */
+#photo-finish-overlay #btn-continue {
+  position: absolute;
+  right: 62px;
+  bottom: 45px;
+  padding: 14px 55px;
+  font-size: 32px;
+  border-radius: 0;
+  border: 2px solid #fff;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  cursor: pointer;
+  z-index: 3;
+}
+
+#photo-finish-overlay #btn-end {
+  position: absolute;
+  right: 62px;
+  bottom: 50px; /* 跟上面略錯一點點位置 */
+  padding: 10px 30px;
+  font-size: 28px;
+  border-radius: 0;
+  border: 2px solid #fff;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  cursor: pointer;
+  z-index: 3;
+}
+
+
+/* ===============================
+   07-2：OFF 走的打卡畫面
+=============================== */
+#photo-off-overlay {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 40;
+}
+
+#photo-off-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#btn-end-off {
+  position: absolute;
+  right: 60px;
+  bottom: 47px;
+  padding: 14px 87px;
+  font-size: 32px;
+  border-radius: 0;
+  border: 2px solid #fff;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  z-index: 41;
+}
+
+/* ===============================
+   IG 發文畫面外層
+=============================== */
+#post-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  background: black;
+  overflow: hidden;
+  z-index: 9999;
+}
+
+/* IG 背景大圖（例如 文字-08） */
+.post-bg-overlay,
+.ig-page-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* IG 內容（手機畫面） */
+.ig-phone {
+  position: relative;
+  width: 150%;
+  height: 100%;
+  margin: 0 auto;
+  overflow-y: scroll;
+  background: black;
+  z-index: 5;
+}
+
+/* 顆粒 */
+.ig-phone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("image/評分.png") repeat;
+  background-size: cover;
+  opacity: 0.75;
+  pointer-events: none;
+  z-index: -2;
+}
+
+/* 漂浮的 文字-08 背景 */
+.ig-phone::after {
+  content: "";
+  position: absolute;
+  inset: -60px;
+  background: url("image/文字-08.png") center/cover no-repeat;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: -1;
+  animation: floatBG 14s ease-in-out infinite;
+}
+
+/* 捲軸隱藏 */
+.ig-phone::-webkit-scrollbar { display: none; }
+.ig-phone {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* IG 右下角結束體驗按鈕（放在手機畫面裡） */
+.btn-end-ig {
+  position: absolute;
+  right: 5px;
+  bottom: -1550px;  /* 依內容高度調整 */
+  padding: 10px 30px;
+  font-size: 32px;
+  border-radius: 0;
+  border: 2px solid #fff;
+  background: rgba(0,0,0,0.88);
+  color: #fff;
+  cursor: pointer;
+  z-index: 100;
+}
+
+/* 如果 HTML 裡還有 #btn-end-post，就隱藏掉 */
+#btn-end-post {
+  display: none !important;
+}
+
+/* =========================
+   IG TOP BAR / STORY / POST
+========================= */
+.top-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px;
+  font-size: 30px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.stories {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+  gap: 40px;
+}
+
+.story {
+  position: relative;
+  width: 220px;
+  text-align: center;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.story-circle {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin: 20px auto 0;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 0.5px solid #fff;
+}
+
+.story-circle img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity .15s linear;
+  pointer-events: none;
+}
+
+.img-normal { opacity: 1; }
+.img-hover  { opacity: 0; }
+
+.story:hover .img-normal { opacity: 0; }
+.story:hover .img-hover  { opacity: 1; }
+
+.story p {
+  font-size: 25px;
+  margin-top: 16px;
+  color: #fff;
+}
+
+.story .hover-tag {
+  position: absolute;
+  top: -18px;
+  right: 0;
+  background: #ff2d2d;
+  color: #fff;
+  font-size: 27px;
+  padding: 10px 18px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: .2s ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.story:hover .hover-tag {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 貼文本體 */
+.post {
+  position: relative;
+  z-index: 2;
+  margin-top: 40px;
+  width: 100%;
+}
+
+.post-header {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  font-size: 30px;
+  color: #fff;
+}
+
+.post-header img {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  margin: 20px;
+  border: 0.5px solid #fff;
+}
+
+.post-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 820px;
+  aspect-ratio: 6 / 5;
+  overflow: hidden;
+}
+
+.post-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  object-position: 40% 40%;
+}
+
+/* 當機 21 分 */
+.glitch-score {
+  position: absolute;
+  top: 700px;
+  right: 360px;
+  font-size: 80px;
+  font-weight: 900;
+  color: rgb(240, 240, 240);
+  opacity: 0.7;
+  letter-spacing: 6px;
+  pointer-events: none;
+  z-index: 10;
+  text-shadow:
+    2px 0 rgb(120, 120, 120),
+    -2px 0 rgb(28, 28, 28);
+  animation: glitchFlash 1s steps(2) infinite;
+}
+
+/* 讚 & 分享 icon 列 */
+.actions {
+  display: flex;
+  padding: 10px;
+  font-size: 60px;
+  color: #fff;
+}
+
+.actions span {
+  margin-right: 20px;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+.likes-count {
+  font-size: 36px;
+  padding: 8px 12px;
+  color: #fff;
+}
+
+/* 留言列表 */
+.comments {
+  padding: 12px;
+  font-size: 26px;
+  line-height: 40px;
+  color: #fff;
+}
+
+.comments p {
+  margin: 10px 0;
+  word-break: break-word;
+}
+
+/* 留言輸入框 */
+.comment-box {
+  display: flex;
+  padding: 10px;
+  border-top: 1px solid #444;
+  position: relative;
+  z-index: 2;
+}
+
+.comment-box input {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #555;
+  color: white;
+  padding: 9px;
+  outline: none;
+  font-size: 30px;
+}
+
+.comment-box button {
+  margin-left: 20px;
+  background: none;
+  border: none;
+  color: #0095f6;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 30px;
+}
+
+/* ===============================
+   動畫
+=============================== */
+@keyframes glitchFlash {
+  0%   { transform: translate(0,0); opacity: 1; }
+  20%  { transform: translate(-3px,2px); }
+  40%  { transform: translate(3px,-2px); }
+  60%  { transform: translate(-2px,1px); }
+  80%  { transform: translate(2px,-1px); }
+  100% { transform: translate(0,0); opacity: 0; }
+}
+
+@keyframes floatBG {
+  0%   { transform: translate(0,0); }
+  25%  { transform: translate(-30px,10px); }
+  50%  { transform: translate(30px,-10px); }
+  75%  { transform: translate(-20px,-20px); }
+  100% { transform: translate(0,0); }
+}

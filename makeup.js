@@ -1,6 +1,17 @@
 // ===============================
-//   Part 2 : Makeup Filter (FaceMesh) ✅ Chrome 穩定版
+//   Part 2 : Makeup Filter (FaceMesh)
 // ===============================
+
+// Chrome 專用：限制 FaceMesh 處理 FPS（避免卡頓）
+let lastFrameTime = 0;
+const FRAME_INTERVAL = 33; // 33ms ≈ 30 FPS（Chrome 很有感）
+
+function shouldProcessFrame() {
+  const now = performance.now();
+  if (now - lastFrameTime < FRAME_INTERVAL) return false;
+  lastFrameTime = now;
+  return true;
+}
 
 // Makeup canvas
 const mkCtx       = mkCanvas.getContext("2d");
@@ -9,14 +20,6 @@ const mkRawCtx    = mkRawBuffer.getContext("2d");
 
 // 給 FaceMesh + Hands 共用的 Camera
 let mkCamera = null;
-
-// ✅ 避免 onFrame 內 await 堆積（Chrome 很重要）
-let fmBusy = false;
-let hdBusy = false;
-
-// ✅ Hands 降頻（150~250ms 都可；想更穩就 200）
-let lastHandSend = 0;
-const HAND_INTERVAL = 150;
 
 // Image assets (same filename in all folders)
 const faceImg  = new Image();
@@ -47,6 +50,60 @@ function updateNavUI(activeIndex) {
       : "image/bth.png";
   });
 }
+
+// ---------------------------
+// 開啟美妝濾鏡 + FaceMesh + Hands（YA & 揮動）
+// ---------------------------
+function startMakeupFilter() {
+  // 先把偵測相關的 overlay 全部關掉（04 / 05 / 06 / camera）
+  if (detectFinishOverlay) detectFinishOverlay.style.display = "none";
+  if (ratingOverlay)       ratingOverlay.style.display       = "none";
+  if (lowScoreOverlay)     lowScoreOverlay.style.display     = "none";
+  if (cameraOverlay)       cameraOverlay.style.display       = "none";
+
+  // 顯示美妝用的外框
+  if (mkStage)     mkStage.style.display     = "block";
+  if (frameMakeup) frameMakeup.style.display = "block";
+  if (frameText)   frameText.style.display   = "none";
+  // 美妝時要看到底部圈圈
+  if (navBar) navBar.style.display="flex";
+
+  // 狀態標記
+  filterPhase = 1; // 第一輪：美妝濾鏡
+  overlayStep = 4;
+
+  // 開啟濾鏡一畫面
+  if (filterSelectOverlay) filterSelectOverlay.style.display = "flex";
+  if (cameraOverlay)       cameraOverlay.style.display       = "none";
+
+  mkCanvas.style.display = "block";
+  mkVideo.style.opacity  = 0;
+
+  if (filtersWrapper) filtersWrapper.style.display = "flex";
+
+  // 開鏡頭（FaceMesh + Hands）
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      mkVideo.srcObject = stream;
+
+      mkCamera = new Camera(mkVideo, {
+        onFrame: async () => {
+          if (!mkVideo.videoWidth) return;
+          await faceMesh.send({ image: mkVideo }); // 畫妝容
+          await hands.send({ image: mkVideo });    // 手勢辨識（揮動 + YA）
+        },
+        width: 1080,
+        height: 1920
+      });
+
+      mkCamera.start();
+      console.log("💄 濾鏡一：FaceMesh + Hands（YA & Swipe）已啟動");
+    })
+    .catch(err => {
+      console.error("startMakeupFilter 開鏡頭失敗：", err);
+    });
+}
+
 
 // ---------------------------
 // 載入某一組妝容
@@ -112,104 +169,19 @@ faceMesh.setOptions({
 });
 
 // ---------------------------
-// 開啟美妝濾鏡 + FaceMesh + Hands（YA & 揮動）
-// ---------------------------
-function startMakeupFilter() {
-  // ✅ 避免重複開鏡造成 Chrome 卡/手勢失效
-  stopMakeupCamera();
-
-  // 先把偵測相關的 overlay 全部關掉（04 / 05 / 06 / camera）
-  if (detectFinishOverlay) detectFinishOverlay.style.display = "none";
-  if (ratingOverlay)       ratingOverlay.style.display       = "none";
-  if (lowScoreOverlay)     lowScoreOverlay.style.display     = "none";
-  if (cameraOverlay)       cameraOverlay.style.display       = "none";
-
-  // 顯示美妝用的外框
-  if (mkStage)     mkStage.style.display     = "block";
-  if (frameMakeup) frameMakeup.style.display = "block";
-  if (frameText)   frameText.style.display   = "none";
-
-  // 美妝時要看到底部圈圈
-  if (navBar) navBar.style.display = "flex";
-
-  // 狀態標記
-  filterPhase = 1; // 第一輪：美妝濾鏡
-  overlayStep = 4;
-
-  // 開啟濾鏡一畫面
-  if (filterSelectOverlay) filterSelectOverlay.style.display = "flex";
-  if (cameraOverlay)       cameraOverlay.style.display       = "none";
-
-  mkCanvas.style.display = "block";
-  mkVideo.style.opacity  = 0;
-
-  if (filtersWrapper) filtersWrapper.style.display = "flex";
-
-  // ✅ 進入濾鏡重置平滑狀態（避免切回來抖/飄）
-  mkInitialized = false;
-  fx = fy = fw = 0;
-  lx = ly = lw = 0;
-
-  // ✅ 重置 busy / 計時
-  fmBusy = false;
-  hdBusy = false;
-  lastHandSend = 0;
-
-  // 開鏡頭（FaceMesh + Hands）
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-    .then(stream => {
-      mkVideo.srcObject = stream;
-
-      mkCamera = new Camera(mkVideo, {
-        onFrame: async () => {
-          if (!mkVideo.videoWidth) return;
-
-          // ✅ FaceMesh：避免堆積（不要每幀 await）
-          if (!fmBusy) {
-            fmBusy = true;
-            faceMesh.send({ image: mkVideo })
-              .catch(e => console.warn("faceMesh.send error:", e))
-              .finally(() => { fmBusy = false; });
-          }
-
-          // ✅ Hands：降頻 + 避免堆積（YA / 揮手更穩）
-          const now = performance.now();
-          if (now - lastHandSend >= HAND_INTERVAL && !hdBusy) {
-            lastHandSend = now;
-            hdBusy = true;
-            hands.send({ image: mkVideo })
-              .catch(e => console.warn("hands.send error:", e))
-              .finally(() => { hdBusy = false; });
-          }
-        },
-        width: 1080,
-        height: 1920
-      });
-
-      mkCamera.start();
-      console.log("💄 濾鏡一：FaceMesh + Hands（YA & Swipe）已啟動");
-    })
-    .catch(err => {
-      console.error("startMakeupFilter 開鏡頭失敗：", err);
-    });
-}
-
-// ---------------------------
 // FaceMesh 結果：畫妝容
 // ---------------------------
 faceMesh.onResults((res) => {
   if (!mkVideo.videoWidth) return;
+  if (!shouldProcessFrame()) return;
 
   const w = mkVideo.videoWidth;
   const h = mkVideo.videoHeight;
 
-  // ✅ Chrome 超關鍵：只在尺寸變動時才重設 canvas
-  if (mkCanvas.width !== w || mkCanvas.height !== h) {
-    mkCanvas.width  = w;
-    mkCanvas.height = h;
-    mkRawBuffer.width  = w;
-    mkRawBuffer.height = h;
-  }
+  mkCanvas.width  = w;
+  mkCanvas.height = h;
+  mkRawBuffer.width  = w;
+  mkRawBuffer.height = h;
 
   // 先把鏡頭畫到 buffer（鏡像）
   mkRawCtx.save();
@@ -243,11 +215,8 @@ faceMesh.onResults((res) => {
     fw += (faceWidth - fw) * 0.25;
   }
 
-  // 粉底
   const fh = fw * (faceImg.height / faceImg.width);
-  if (faceImg.complete && faceImg.width) {
-    mkCtx.drawImage(faceImg, fx - fw / 2, fy - fh / 2 + 30, fw, fh);
-  }
+  mkCtx.drawImage(faceImg, fx - fw / 2, fy - fh / 2 + 30, fw, fh);
 
   // 嘴唇
   const lX = (1 - lm[61].x) * w;
@@ -269,71 +238,63 @@ faceMesh.onResults((res) => {
     lw += (lipTargetW - lw) * 0.25;
   }
 
-  if (lipImg.complete && lipImg.width) {
-    const lipH = lw * (lipImg.height / lipImg.width);
-    mkCtx.drawImage(lipImg, lx - lw / 2, ly - lipH / 2, lw, lipH);
-  }
+  const lipH = lw * (lipImg.height / lipImg.width);
+  mkCtx.drawImage(lipImg, lx - lw / 2, ly - lipH / 2, lw, lipH);
 
   // 腮紅
-  if (blushImg.complete && blushImg.width) {
-    const blushSize = fw * 0.9;
-    mkCtx.save();
-    mkCtx.globalAlpha = 0.85;
+  const blushSize = fw * 0.9;
+  mkCtx.save();
+  mkCtx.globalAlpha = 0.85;
 
-    mkCtx.drawImage(
-      blushImg,
-      (1 - lm[234].x) * w - blushSize / 2 - 60,
-      lm[250].y * h - blushSize / 2 + 8,
-      blushSize, blushSize
-    );
+  mkCtx.drawImage(
+    blushImg,
+    (1 - lm[234].x) * w - blushSize / 2 - 60,
+    lm[250].y * h - blushSize / 2 + 8,
+    blushSize, blushSize
+  );
 
-    mkCtx.drawImage(
-      blushImg,
-      (1 - lm[454].x) * w - blushSize / 2 - 44,
-      lm[454].y * h - blushSize / 2 + 35,
-      blushSize, blushSize
-    );
+  mkCtx.drawImage(
+    blushImg,
+    (1 - lm[454].x) * w - blushSize / 2 - 44,
+    lm[454].y * h - blushSize / 2 + 35,
+    blushSize, blushSize
+  );
 
-    mkCtx.restore();
-  }
+  mkCtx.restore();
 
   // 眉毛
-  if (browImg.complete && browImg.width) {
-    const browW = fw * 1.3;
-    const browH = browW * (browImg.height / browImg.width) * 0.7;
+  const browW = fw * 1.3;
+  const browH = browW * (browImg.height / browImg.width) * 0.7;
 
-    mkCtx.drawImage(
-      browImg,
-      (1 - lm[70].x) * w - browW / 2 - 50,
-      lm[70].y * h - browH / 2 + 70,
-      browW, browH
-    );
+  mkCtx.drawImage(
+    browImg,
+    (1 - lm[70].x) * w - browW / 2 - 50,
+    lm[70].y * h - browH / 2 + 70,
+    browW, browH
+  );
 
-    mkCtx.save();
-    mkCtx.translate((1 - lm[300].x) * w + 50, lm[300].y * h + 70);
-    mkCtx.scale(-1, 1);
-    mkCtx.drawImage(browImg, -browW / 2, -browH / 2, browW, browH);
-    mkCtx.restore();
-  }
+  mkCtx.save();
+  mkCtx.translate((1 - lm[300].x) * w + 50, lm[300].y * h + 70);
+  mkCtx.scale(-1, 1);
+  mkCtx.drawImage(browImg, -browW / 2, -browH / 2, browW, browH);
+  mkCtx.restore();
 
   // 眼影 / 眼線
-  if (eyeImg.complete && eyeImg.width) {
-    const eyeW = fw * 0.21;
-    const eyeH = eyeW * (eyeImg.height / eyeImg.width);
+  const eyeW = fw * 0.21;
+  const eyeH = eyeW * (eyeImg.height / eyeImg.width);
 
-    mkCtx.drawImage(
-      eyeImg,
-      (1 - lm[159].x) * w - eyeW / 2 + 2,
-      lm[159].y * h - eyeH / 2 + 3,
-      eyeW, eyeH
-    );
+  mkCtx.drawImage(
+    eyeImg,
+    (1 - lm[159].x) * w - eyeW / 2 + 2,
+    lm[159].y * h - eyeH / 2 + 3,
+    eyeW, eyeH
+  );
 
-    mkCtx.save();
-    mkCtx.translate((1 - lm[386].x) * w + 2, lm[386].y * h + 1.5);
-    mkCtx.scale(-1, 1);
-    mkCtx.drawImage(eyeImg, -eyeW / 2.1, -eyeH / 2.05, eyeW, eyeH);
-    mkCtx.restore();
-  }
+  mkCtx.save();
+  mkCtx.translate((1 - lm[386].x) * w + 2, lm[386].y * h + 1.5);
+  mkCtx.scale(-1, 1);
+  mkCtx.drawImage(eyeImg, -eyeW / 2.1, -eyeH / 2.05, eyeW, eyeH);
+  mkCtx.restore();
 });
 
 // ----------------------------------
@@ -381,10 +342,6 @@ function stopMakeupCamera() {
     mkVideo.srcObject.getTracks().forEach(t => t.stop());
     mkVideo.srcObject = null;
   }
-
-  // ✅ 清 busy 狀態（避免下次啟動卡住）
-  fmBusy = false;
-  hdBusy = false;
 
   console.log("💄 stopMakeupCamera：濾鏡一鏡頭已關閉");
 }

@@ -2,6 +2,17 @@
 //   Part 2 : Makeup Filter (FaceMesh)
 // ===============================
 
+// Chrome 專用：限制 FaceMesh 處理 FPS（避免卡頓）
+let lastFrameTime = 0;
+const FRAME_INTERVAL = 33; // 33ms ≈ 30 FPS（Chrome 很有感）
+
+function shouldProcessFrame() {
+  const now = performance.now();
+  if (now - lastFrameTime < FRAME_INTERVAL) return false;
+  lastFrameTime = now;
+  return true;
+}
+
 // Makeup canvas
 const mkCtx       = mkCanvas.getContext("2d");
 const mkRawBuffer = document.createElement("canvas");
@@ -162,6 +173,7 @@ faceMesh.setOptions({
 // ---------------------------
 faceMesh.onResults((res) => {
   if (!mkVideo.videoWidth) return;
+  if (!shouldProcessFrame()) return;
 
   const w = mkVideo.videoWidth;
   const h = mkVideo.videoHeight;

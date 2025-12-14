@@ -15,13 +15,31 @@ let fd = null;
 let filterCam = null;
 let filterStarted = false;
 
+// ✅ Chrome / 重負載：限制文字濾鏡處理頻率（避免堆幀）
+let textLastFrameTime = 0;
+const TEXT_FRAME_INTERVAL = 33; // 30fps；不夠順就改 40 或 50
+
+function shouldProcessTextFrame() {
+  const now = performance.now();
+  if (now - textLastFrameTime < TEXT_FRAME_INTERVAL) return false;
+  textLastFrameTime = now;
+  return true;
+}
+
+// ✅ 避免 onFrame 內 await 疊加造成卡頓
+let fdBusy = false;
+let handsBusy = false;
+
+// ✅ Hands 可以更慢（文字濾鏡不需要那麼密）
+let lastHandsSend = 0;
+const TEXT_HAND_INTERVAL = 200; // 200~250 都可以
+
 // ---- 幾何參數：只要調這兩個就好 ----
 const FILTER_SCALE_TEXT    = 2.8;  // 越大圖越大，直角肩越容易被吃掉
 const FILTER_OFFSET_Y_TEXT = 0;    // 0 先不要位移，有需要再微調
 
 // 上一幀 overlay 在 DOM 裡的位置（給拍照用）
 let lastOverlayBox = null;
-
 
 // ===============================
 //   啟動文字濾鏡
@@ -130,15 +148,33 @@ function startTextFilter() {
   });
 
   // Camera：同時餵給 FaceDetection（TextFilter）跟 Hands（YA 手勢）
-  filterCam = new Camera(filterVideo, {
-    onFrame: async () => {
-      if (!filterVideo.videoWidth) return;
+ filterCam = new Camera(filterVideo, {
+   onFrame: async () => {
+    if (!filterVideo.videoWidth) return;
 
-      await fd.send({ image: filterVideo });      // 臉部偵測
-      await hands.send({ image: filterVideo });   // 手勢偵測（讓 YA / 👍👎 在濾鏡二也可用）
-    },
-    width: 1080,
-    height: 1920
+    // ✅ 先降頻：Chrome 立刻有感
+    if (!shouldProcessTextFrame()) return;
+
+    // ✅ FaceDetection：避免堆 await
+    if (!fdBusy) {
+      fdBusy = true;
+      fd.send({ image: filterVideo })
+        .catch(e => console.warn("fd.send error:", e))
+        .finally(() => { fdBusy = false; });
+    }
+
+    // ✅ Hands：再降頻 + 避免堆 await
+    const now = performance.now();
+    if (now - lastHandsSend >= TEXT_HAND_INTERVAL && !handsBusy) {
+      lastHandsSend = now;
+      handsBusy = true;
+      hands.send({ image: filterVideo })
+        .catch(e => console.warn("hands.send error:", e))
+        .finally(() => { handsBusy = false; });
+    }
+  },
+  width: 1080,
+  height: 1920
   });
 
   filterCam.start();

@@ -1,5 +1,7 @@
 // ===============================
 //   Part 3 : Text Filter (PNG Overlay)
+//   ✅ 刪除手勢
+//   ✅ 進入後 10 秒自動拍攝（只一次）
 // ===============================
 
 // 文字濾鏡用的兩張圖
@@ -16,11 +18,19 @@ let filterCam = null;
 let filterStarted = false;
 
 // ---- 幾何參數：只要調這兩個就好 ----
-const FILTER_SCALE_TEXT    = 2.8;  // 越大圖越大，直角肩越容易被吃掉
-const FILTER_OFFSET_Y_TEXT = 0;    // 0 先不要位移，有需要再微調
+const FILTER_SCALE_TEXT    = 2.8;
+const FILTER_OFFSET_Y_TEXT = 0;
 
 // 上一幀 overlay 在 DOM 裡的位置（給拍照用）
 let lastOverlayBox = null;
+
+// ✅ 自動拍照控制
+const AUTO_TEXT_SHOT_MS = 10000;
+let autoTextShotTimer = null;
+let autoTextShotLocked = false;
+
+// ✅ 避免 onFrame await 堆積
+let fdBusy = false;
 
 
 // ===============================
@@ -65,9 +75,19 @@ function startTextFilter() {
   filterPhase = 2;
   overlayStep = 7;
 
-  // 已經啟動過就不要再開一次
+  // ✅ 進入文字濾鏡就開始 10 秒倒數自動拍照（每次進來都重設）
+  autoTextShotLocked = false;
+  if (autoTextShotTimer) clearTimeout(autoTextShotTimer);
+  autoTextShotTimer = setTimeout(() => {
+    if (autoTextShotLocked) return;
+    autoTextShotLocked = true;
+    console.log("⏱️ 文字濾鏡 10 秒到 → 自動拍照");
+    takeTextPhoto();
+  }, AUTO_TEXT_SHOT_MS);
+
+  // 已經啟動過就不要再開一次（但倒數已重設）
   if (filterStarted) {
-    console.log("🔤 文字濾鏡已啟動過，略過");
+    console.log("🔤 文字濾鏡已啟動過，略過重新初始化");
     return;
   }
   filterStarted = true;
@@ -94,7 +114,7 @@ function startTextFilter() {
   // 每一幀臉的結果 → 算出 PNG 要貼在哪裡（預覽用）
   fd.onResults((results) => {
     if (!results.detections || !results.detections.length) {
-      faceOverlayEl.style.opacity = 0;
+      if (faceOverlayEl) faceOverlayEl.style.opacity = 0;
       lastOverlayBox = null;
       return;
     }
@@ -115,34 +135,36 @@ function startTextFilter() {
     const h = fh * FILTER_SCALE_TEXT;
 
     const x = cx - w / 2;
-    // Y 可以再加一個很小的 offset 做微調
     const y = cy - h / 2 + FILTER_OFFSET_Y_TEXT * vh;
 
-    // 直接套到 DOM 上 → 預覽時的位置
-    faceOverlayEl.style.width  = w + "px";
-    faceOverlayEl.style.height = h + "px";
-    faceOverlayEl.style.left   = x + "px";
-    faceOverlayEl.style.top    = y + "px";
+    faceOverlayEl.style.width   = w + "px";
+    faceOverlayEl.style.height  = h + "px";
+    faceOverlayEl.style.left    = x + "px";
+    faceOverlayEl.style.top     = y + "px";
     faceOverlayEl.style.opacity = 1;
 
-    // 記錄給「拍照時」轉成 canvas 座標用
     lastOverlayBox = { x, y, w, h };
   });
 
-  // Camera：同時餵給 FaceDetection（TextFilter）跟 Hands（YA 手勢）
+  // Camera：只餵 FaceDetection（✅ 不再餵 hands）
   filterCam = new Camera(filterVideo, {
     onFrame: async () => {
       if (!filterVideo.videoWidth) return;
 
-      await fd.send({ image: filterVideo });      // 臉部偵測
-      await hands.send({ image: filterVideo });   // 手勢偵測（讓 YA / 👍👎 在濾鏡二也可用）
+      if (fdBusy) return;
+      fdBusy = true;
+      try {
+        await fd.send({ image: filterVideo });
+      } finally {
+        fdBusy = false;
+      }
     },
     width: 1080,
     height: 1920
   });
 
   filterCam.start();
-  console.log("🔤 文字 PNG 濾鏡已啟動");
+  console.log("🔤 文字 PNG 濾鏡已啟動（10 秒自動拍照 / 無手勢）");
 }
 
 
@@ -150,6 +172,13 @@ function startTextFilter() {
 //   停止文字濾鏡鏡頭
 // ===============================
 function stopTextCamera() {
+  // ✅ 清掉自動拍照 timer（避免離開後還觸發）
+  if (autoTextShotTimer) {
+    clearTimeout(autoTextShotTimer);
+    autoTextShotTimer = null;
+  }
+  autoTextShotLocked = true;
+
   if (filterCam) {
     try { filterCam.stop(); }
     catch (e) { console.warn("stopTextCamera stop() 失敗：", e); }
@@ -161,12 +190,14 @@ function stopTextCamera() {
     filterVideo.srcObject = null;
   }
 
+  fdBusy = false;
+
   console.log("🔤 stopTextCamera：文字濾鏡鏡頭已關閉");
 }
 
 
 // ===============================
-//   YA 拍照：文字濾鏡 → 07
+//   自動拍照：文字濾鏡 → 07（後面邏輯不變）
 // ===============================
 function takeTextPhoto() {
   const vw = filterVideo.videoWidth;
@@ -189,15 +220,15 @@ function takeTextPhoto() {
   ctx.drawImage(filterVideo, 0, 0, canvas.width, canvas.height);
   ctx.restore();
 
-  // 02 再疊 文字-08（這時候就是 overlay，而不是被蓋住的背景）
+  // 02 再疊 文字-08（overlay）
   if (textBgImage.complete) {
     ctx.drawImage(textBgImage, 0, 0, canvas.width, canvas.height);
   } else {
     console.warn("⚠️ 文字-08 還沒載完，背景略過");
   }
 
-  // 03 疊 文字-07 PNG（跟之前一樣）
-  if (lastOverlayBox && faceOverlayEl.complete) {
+  // 03 疊 文字-07 PNG
+  if (lastOverlayBox && faceOverlayEl && faceOverlayEl.complete) {
     const domW = filterVideo.clientWidth;
     const domH = filterVideo.clientHeight;
 
@@ -217,11 +248,8 @@ function takeTextPhoto() {
   // 04 存成圖片，丟去 07 / IG
   const photo = canvas.toDataURL("image/png");
 
-  try {
-    localStorage.setItem("capturedImage", photo);
-  } catch (e) {
-    console.warn("⚠️ 無法寫入 localStorage：", e);
-  }
+  try { localStorage.setItem("capturedImage", photo); }
+  catch (e) { console.warn("⚠️ 無法寫入 localStorage：", e); }
 
   if (uiPhotoFinish) uiPhotoFinish.src = photo;
   if (postImage)     postImage.src     = photo;

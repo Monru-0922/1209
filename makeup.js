@@ -1,11 +1,15 @@
 // ===============================
 //   Part 2 : Makeup Filter (FaceMesh)
+//   ✅ Enter 切換濾鏡
+//   ✅ 進入後倒數 20 秒自動拍照（只一次）
+//   ✅ 移除 Hands（無捏合/YA）更穩
+//   ✅ 恢復 腮紅/眼影（眉毛已移除）
 // ===============================
 
-// Chrome 專用：限制 FaceMesh 處理 FPS（避免卡頓）
-let lastFrameTime = 0;
-const FRAME_INTERVAL = 33; // 33ms ≈ 30 FPS（Chrome 很有感）
 
+// ---------- FPS 控制（Chrome 穩定） ----------
+let lastFrameTime = 0;
+const FRAME_INTERVAL = 33; // ≈30 FPS
 function shouldProcessFrame() {
   const now = performance.now();
   if (now - lastFrameTime < FRAME_INTERVAL) return false;
@@ -13,75 +17,135 @@ function shouldProcessFrame() {
   return true;
 }
 
-// Makeup canvas
+
+// ---------- Canvas ----------
 const mkCtx       = mkCanvas.getContext("2d");
 const mkRawBuffer = document.createElement("canvas");
 const mkRawCtx    = mkRawBuffer.getContext("2d");
-
-// 給 FaceMesh + Hands 共用的 Camera
 let mkCamera = null;
 
-// Image assets (same filename in all folders)
+
+// ---------- 避免 onFrame await 疊加 ----------
+let fmBusy = false;
+
+
+// ---------- Enter / 自動拍照狀態 ----------
+let isInMakeupMode = false;
+let enterBound = false;
+let autoShotTimer = null;
+let autoShotLocked = false;
+
+const AUTO_SHOT_MS = 20000;
+
+
+// ---------- 妝容素材 ----------
 const faceImg  = new Image();
 const lipImg   = new Image();
-const browImg  = new Image();
+const browImg  = new Image();   // ✅ 仍保留載入（但不畫）
 const eyeImg   = new Image();
 const blushImg = new Image();
 
-// 五組妝容資料夾
-const makeupFolders = [
-  "makeup/",
-  "makeup2/",
-  "makeup3/",
-  "makeup4/",
-  "makeup5/"
-];
-
-// 目前濾鏡 index：0~4 對應 1~5 顆圈圈
+const makeupFolders = ["makeup/","makeup2/","makeup3/","makeup4/","makeup5/"];
 let currentStyleIndex = 0;
 
-// --- 底部圈圈亮起 UI ---
+
+// ✅ 眉毛開關：你要刪眉毛，所以 false
+const ENABLE_BROW = false;
+
+
+// ---------- 底部圈圈 UI ----------
 function updateNavUI(activeIndex) {
   if (!navImgs || !navImgs.length) return;
-
   navImgs.forEach((img, i) => {
-    img.src = (i === activeIndex)
-      ? "image/red man.png"
-      : "image/bth.png";
+    img.src = (i === activeIndex) ? "image/red man.png" : "image/bth.png";
   });
 }
 
-// ---------------------------
-// 開啟美妝濾鏡 + FaceMesh + Hands（YA & 揮動）
-// ---------------------------
+
+// ---------- 載入妝容 ----------
+function loadMakeupStyle(index) {
+  const folder = makeupFolders[index] || makeupFolders[0];
+
+  faceImg.src  = folder + "foundation.png";
+  lipImg.src   = folder + "lip.png";
+
+  // ✅ 眉毛檔名容錯：brows.png / brow.png 都可以
+  browImg.onerror = () => { browImg.src = folder + "brows.png"; };
+  browImg.src = folder + "brow.png";
+
+  eyeImg.src   = folder + "eye.png";
+  blushImg.src = folder + "blush.png";
+
+  updateNavUI(index);
+  console.log("💄 載入妝容：", folder);
+}
+loadMakeupStyle(0);
+
+
+// ===============================
+// Enter 事件（只在美妝模式生效）
+// ===============================
+function bindEnterForMakeup() {
+  if (enterBound) return;
+  enterBound = true;
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (!isInMakeupMode) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    currentStyleIndex = (currentStyleIndex + 1) % makeupFolders.length;
+    loadMakeupStyle(currentStyleIndex);
+  }, true);
+}
+
+
+// ===============================
+// 開啟美妝濾鏡（主入口）
+// ===============================
 function startMakeupFilter() {
-  // 先把偵測相關的 overlay 全部關掉（04 / 05 / 06 / camera）
-  if (detectFinishOverlay) detectFinishOverlay.style.display = "none";
-  if (ratingOverlay)       ratingOverlay.style.display       = "none";
-  if (lowScoreOverlay)     lowScoreOverlay.style.display     = "none";
-  if (cameraOverlay)       cameraOverlay.style.display       = "none";
+  bindEnterForMakeup();
 
-  // 顯示美妝用的外框
-  if (mkStage)     mkStage.style.display     = "block";
-  if (frameMakeup) frameMakeup.style.display = "block";
-  if (frameText)   frameText.style.display   = "none";
-  // 美妝時要看到底部圈圈
-  if (navBar) navBar.style.display="flex";
+  detectFinishOverlay && (detectFinishOverlay.style.display = "none");
+  ratingOverlay       && (ratingOverlay.style.display       = "none");
+  lowScoreOverlay     && (lowScoreOverlay.style.display     = "none");
+  cameraOverlay       && (cameraOverlay.style.display       = "none");
 
-  // 狀態標記
-  filterPhase = 1; // 第一輪：美妝濾鏡
-  overlayStep = 4;
+  mkStage     && (mkStage.style.display     = "block");
+  frameMakeup && (frameMakeup.style.display = "block");
+  frameText   && (frameText.style.display   = "none");
+  navBar      && (navBar.style.display      = "flex");
 
-  // 開啟濾鏡一畫面
-  if (filterSelectOverlay) filterSelectOverlay.style.display = "flex";
-  if (cameraOverlay)       cameraOverlay.style.display       = "none";
+  filterSelectOverlay && (filterSelectOverlay.style.display = "flex");
+  filtersWrapper      && (filtersWrapper.style.display      = "flex");
 
   mkCanvas.style.display = "block";
   mkVideo.style.opacity  = 0;
 
-  if (filtersWrapper) filtersWrapper.style.display = "flex";
+  filterPhase = 1;
+  overlayStep = 4;
 
-  // 開鏡頭（FaceMesh + Hands）
+  isInMakeupMode = true;
+
+  // ✅ 每次進入都重新開始 20 秒自動拍照（只拍一次）
+  autoShotLocked = false;
+  if (autoShotTimer) clearTimeout(autoShotTimer);
+  autoShotTimer = setTimeout(() => {
+    if (!isInMakeupMode) return;
+    if (autoShotLocked) return;
+    autoShotLocked = true;
+    console.log("⏱️ 20 秒到 → 自動拍照");
+    takeMakeupPhoto();
+  }, AUTO_SHOT_MS);
+
+  // ✅ 如果鏡頭已經開著，就不要重開
+  if (mkCamera || (mkVideo && mkVideo.srcObject)) {
+    console.log("💄 美妝鏡頭已在運作，略過重啟");
+    return;
+  }
+
   navigator.mediaDevices.getUserMedia({ video: true })
     .then(stream => {
       mkVideo.srcObject = stream;
@@ -89,68 +153,31 @@ function startMakeupFilter() {
       mkCamera = new Camera(mkVideo, {
         onFrame: async () => {
           if (!mkVideo.videoWidth) return;
-          await faceMesh.send({ image: mkVideo }); // 畫妝容
-          await hands.send({ image: mkVideo });    // 手勢辨識（揮動 + YA）
+          if (!shouldProcessFrame()) return;
+          if (fmBusy) return;
+
+          fmBusy = true;
+          try {
+            await faceMesh.send({ image: mkVideo });
+          } finally {
+            fmBusy = false;
+          }
         },
         width: 1080,
         height: 1920
       });
 
       mkCamera.start();
-      console.log("💄 濾鏡一：FaceMesh + Hands（YA & Swipe）已啟動");
+      console.log("💄 美妝 FaceMesh 已啟動（Enter 換濾鏡 / 20 秒自動拍照）");
     })
-    .catch(err => {
-      console.error("startMakeupFilter 開鏡頭失敗：", err);
-    });
+    .catch(err => console.error("startMakeupFilter 開鏡頭失敗：", err));
 }
 
 
-// ---------------------------
-// 載入某一組妝容
-// ---------------------------
-function loadMakeupStyle(index) {
-  const folder = makeupFolders[index] || makeupFolders[0];
-
-  faceImg.src  = folder + "foundation.png";
-  lipImg.src   = folder + "lip.png";
-  browImg.src  = folder + "brow.png";
-  eyeImg.src   = folder + "eye.png";
-  blushImg.src = folder + "blush.png";
-
-  updateNavUI(index);
-  console.log("💄 加載妝容：", folder);
-}
-
-// ---------------------------
-// 換濾鏡（揮手用）step = +1 / -1
-// ---------------------------
-function changeMakeupStyle(step) {
-  currentStyleIndex += step;
-
-  if (currentStyleIndex < 0) currentStyleIndex = makeupFolders.length - 1;
-  if (currentStyleIndex >= makeupFolders.length) currentStyleIndex = 0;
-
-  loadMakeupStyle(currentStyleIndex);
-}
-
-// ---------------------------
-// 點底部圓圈直接選濾鏡（HTML onclick="changeStyle(1)"）
-// ---------------------------
-function changeStyle(n) {
-  currentStyleIndex = (n - 1 + makeupFolders.length) % makeupFolders.length;
-  loadMakeupStyle(currentStyleIndex);
-  console.log("🔘 點選濾鏡：", n);
-}
-
-// 初始載入第一組妝容
-loadMakeupStyle(0);
-
-// ---------------------------
+// ===============================
 // Mediapipe FaceMesh 初始化
-// ---------------------------
+// ===============================
 let mkInitialized = false;
-
-// 平滑數值
 let fx = 0, fy = 0, fw = 0;
 let lx = 0, ly = 0, lw = 0;
 
@@ -168,22 +195,20 @@ faceMesh.setOptions({
   minTrackingConfidence: 0.6
 });
 
-// ---------------------------
-// FaceMesh 結果：畫妝容
-// ---------------------------
+
+// ===============================
+// FaceMesh 結果：畫妝容（粉底/嘴唇/腮紅/眼影，眉毛移除）
+// ===============================
 faceMesh.onResults((res) => {
   if (!mkVideo.videoWidth) return;
-  if (!shouldProcessFrame()) return;
 
   const w = mkVideo.videoWidth;
   const h = mkVideo.videoHeight;
 
-  mkCanvas.width  = w;
-  mkCanvas.height = h;
-  mkRawBuffer.width  = w;
-  mkRawBuffer.height = h;
+  mkCanvas.width = mkRawBuffer.width = w;
+  mkCanvas.height = mkRawBuffer.height = h;
 
-  // 先把鏡頭畫到 buffer（鏡像）
+  // 畫鏡像相機
   mkRawCtx.save();
   mkRawCtx.translate(w, 0);
   mkRawCtx.scale(-1, 1);
@@ -193,10 +218,10 @@ faceMesh.onResults((res) => {
   mkCtx.clearRect(0, 0, w, h);
   mkCtx.drawImage(mkRawBuffer, 0, 0);
 
-  if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) return;
+  if (!res.multiFaceLandmarks?.length) return;
   const lm = res.multiFaceLandmarks[0];
 
-  // 臉部大範圍
+  // 臉部大範圍（粉底）
   const L = (1 - lm[234].x) * w;
   const R = (1 - lm[454].x) * w;
   const T = lm[10].y * h;
@@ -226,9 +251,7 @@ faceMesh.onResults((res) => {
 
   const lipCX = (lX + rX) / 2;
   const lipCY = ((tY + bY) / 2) + Math.abs(rX - lX) * LIP_Y_OFFSET;
-
-  const lipRealW   = Math.abs(rX - lX);
-  const lipTargetW = lipRealW * 16.1;
+  const lipTargetW = Math.abs(rX - lX) * 16.1;
 
   if (!lw) {
     lx = lipCX; ly = lipCY; lw = lipTargetW;
@@ -241,7 +264,7 @@ faceMesh.onResults((res) => {
   const lipH = lw * (lipImg.height / lipImg.width);
   mkCtx.drawImage(lipImg, lx - lw / 2, ly - lipH / 2, lw, lipH);
 
-  // 腮紅
+  // ✅ 腮紅（加回來）
   const blushSize = fw * 0.9;
   mkCtx.save();
   mkCtx.globalAlpha = 0.85;
@@ -259,27 +282,9 @@ faceMesh.onResults((res) => {
     lm[454].y * h - blushSize / 2 + 35,
     blushSize, blushSize
   );
-
   mkCtx.restore();
 
-  // 眉毛
-  const browW = fw * 1.3;
-  const browH = browW * (browImg.height / browImg.width) * 0.7;
-
-  mkCtx.drawImage(
-    browImg,
-    (1 - lm[70].x) * w - browW / 2 - 50,
-    lm[70].y * h - browH / 2 + 70,
-    browW, browH
-  );
-
-  mkCtx.save();
-  mkCtx.translate((1 - lm[300].x) * w + 50, lm[300].y * h + 70);
-  mkCtx.scale(-1, 1);
-  mkCtx.drawImage(browImg, -browW / 2, -browH / 2, browW, browH);
-  mkCtx.restore();
-
-  // 眼影 / 眼線
+  // ✅ 眼影/眼線（加回來）
   const eyeW = fw * 0.21;
   const eyeH = eyeW * (eyeImg.height / eyeImg.width);
 
@@ -295,46 +300,61 @@ faceMesh.onResults((res) => {
   mkCtx.scale(-1, 1);
   mkCtx.drawImage(eyeImg, -eyeW / 2.1, -eyeH / 2.05, eyeW, eyeH);
   mkCtx.restore();
+
+  // ✅ 眉毛（你要刪掉，所以預設不畫）
+  if (ENABLE_BROW) {
+    const browW = fw * 1.3;
+    const browH = browW * (browImg.height / browImg.width) * 0.7;
+
+    mkCtx.drawImage(
+      browImg,
+      (1 - lm[70].x) * w - browW / 2 - 50,
+      lm[70].y * h - browH / 2 + 70,
+      browW, browH
+    );
+
+    mkCtx.save();
+    mkCtx.translate((1 - lm[300].x) * w + 50, lm[300].y * h + 70);
+    mkCtx.scale(-1, 1);
+    mkCtx.drawImage(browImg, -browW / 2, -browH / 2, browW, browH);
+    mkCtx.restore();
+  }
 });
 
-// ----------------------------------
-// 濾鏡一 拍照（供 YA 手勢也使用）
-// ----------------------------------
+
+// ===============================
+// 拍照（20 秒到會呼叫）
+// ===============================
 function takeMakeupPhoto() {
-  console.log("📸 濾鏡一：開始擷取 mkCanvas 影像");
-
   const photo = mkCanvas.toDataURL("image/png");
-  console.log("photo length =", photo.length);
 
-  try {
-    localStorage.setItem("capturedImage", photo);
-  } catch (e) {
-    console.warn("⚠️ 無法寫入 localStorage：", e);
-  }
+  try { localStorage.setItem("capturedImage", photo); }
+  catch (e) { console.warn("⚠️ 無法寫入 localStorage：", e); }
 
-  if (uiPhotoFinish) uiPhotoFinish.src = photo;
-  if (postImage)     postImage.src     = photo;
+  uiPhotoFinish && (uiPhotoFinish.src = photo);
+  postImage     && (postImage.src     = photo);
 
-  if (filterSelectOverlay) filterSelectOverlay.style.display = "none";
-  if (photoFinishOverlay)  photoFinishOverlay.style.display  = "flex";
-
-  if (detectFinishOverlay) detectFinishOverlay.style.display = "none";
-  if (ratingOverlay)       ratingOverlay.style.display       = "none";
-  if (lowScoreOverlay)     lowScoreOverlay.style.display     = "none";
+  filterSelectOverlay && (filterSelectOverlay.style.display = "none");
+  photoFinishOverlay  && (photoFinishOverlay.style.display  = "flex");
 
   overlayStep = 5;
-  console.log("✅ 濾鏡一拍照完成 → 顯示 07 打卡畫面，overlayStep =", overlayStep);
+
+  isInMakeupMode = false;
+  if (autoShotTimer) {
+    clearTimeout(autoShotTimer);
+    autoShotTimer = null;
+  }
 
   stopMakeupCamera();
 }
 
+
+// ===============================
+// 關閉鏡頭
+// ===============================
 function stopMakeupCamera() {
   if (mkCamera) {
-    try {
-      mkCamera.stop();
-    } catch (e) {
-      console.warn("stopMakeupCamera stop() 失敗：", e);
-    }
+    try { mkCamera.stop(); } catch {}
     mkCamera = null;
   }
 
@@ -343,5 +363,6 @@ function stopMakeupCamera() {
     mkVideo.srcObject = null;
   }
 
-  console.log("💄 stopMakeupCamera：濾鏡一鏡頭已關閉");
+  fmBusy = false;
+  autoShotLocked = true;
 }

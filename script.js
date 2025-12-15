@@ -285,8 +285,12 @@ if (btnLowOff) {
 }
 
 // ===============================
-//   Part 4 : Hands - 模型初始化 + 手勢邏輯
+//   Part 4 : Hands - 👍👎 only (06 / 08 / 09)
+//   ✅ 移除 Swipe 換濾鏡
+//   ✅ 移除 YA 拍照
+//   ✅ 只保留 overlayStep === 3 / 6 / 8 的 👍👎
 // ===============================
+
 const hands = new Hands({
   locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
 });
@@ -298,52 +302,15 @@ hands.setOptions({
   minTrackingConfidence: 0.5
 });
 
-// ---------- Swipe / YA / 👍 👎 狀態 ----------
-let swipeStartX    = null;
-let swipeStartTime = 0;
-let lastSwipeTime  = 0;
-
-const SWIPE_MIN_DISTANCE = 0.06;
-const SWIPE_MAX_DURATION = 800;
-const SWIPE_COOLDOWN     = 700;
-
-// YA 拍照
-let yaHoldFrames   = 0;
-let lastShotTime   = 0;
-const YA_HOLD_NEED     = 8;
-const YA_SHOT_COOLDOWN = 2000;
-
-// 👍 / 👎
+// 👍 / 👎 狀態
 let thumbUpFrames   = 0;
 let thumbDownFrames = 0;
 let lastThumbAction = 0;
+
 const THUMB_HOLD_NEED = 2;
 const THUMB_COOLDOWN  = 1500;
 
 // ---------- 姿勢判斷 ----------
-function isYAGesture(lm) {
-  const indexTip   = lm[8];
-  const indexPip   = lm[6];
-  const middleTip  = lm[12];
-  const middlePip  = lm[10];
-  const ringTip    = lm[16];
-  const ringPip    = lm[14];
-  const pinkyTip   = lm[20];
-  const pinkyPip   = lm[18];
-
-  const isIndexUp  = indexTip.y  < indexPip.y  - 0.04;
-  const isMiddleUp = middleTip.y < middlePip.y - 0.04;
-  const isRingFold = ringTip.y   > ringPip.y   - 0.01;
-  const isPinkyFold= pinkyTip.y  > pinkyPip.y  - 0.01;
-
-  const dx = indexTip.x - middleTip.x;
-  const dy = indexTip.y - middleTip.y;
-  const dist = Math.hypot(dx, dy);
-  const isVSpace = dist > 0.06;
-
-  return isIndexUp && isMiddleUp && isRingFold && isPinkyFold && isVSpace;
-}
-
 function isThumbUp(lm) {
   const thumbTip = lm[4];
   const indexMcp = lm[5];
@@ -356,207 +323,108 @@ function isThumbDown(lm) {
   return thumbTip.y > indexMcp.y + 0.02;
 }
 
-// ---------- 手勢結果處理 ----------
+// ---------- 手勢結果處理（只處理 06/08/09） ----------
 function handleHandsResults(results) {
   if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
-    swipeStartX     = null;
-    yaHoldFrames    = 0;
-    thumbUpFrames   = 0;
+    thumbUpFrames = 0;
     thumbDownFrames = 0;
     return;
   }
 
+  // ✅ 只在 06 / 08 / 09 使用 👍👎
+  // 06：overlayStep === 3
+  // 08：overlayStep === 6
+  // 09：overlayStep === 8
+  if (overlayStep !== 3 && overlayStep !== 6 && overlayStep !== 8) return;
+
   const lm  = results.multiHandLandmarks[0];
   const now = performance.now();
 
-  // ===============================
-  //  06 / 08 / 09 頁面：用 👍 / 👎
-  //   06：overlayStep === 3
-  //   08：overlayStep === 6
-  //   09：overlayStep === 8
-  // ===============================
-  if (overlayStep === 3 || overlayStep === 6 || overlayStep === 8) {
-    const up   = isThumbUp(lm);
-    const down = isThumbDown(lm);
+  const up   = isThumbUp(lm);
+  const down = isThumbDown(lm);
 
-    if (up) {
-      thumbUpFrames++;
-      thumbDownFrames = 0;
-    } else if (down) {
-      thumbDownFrames++;
-      thumbUpFrames = 0;
-    } else {
-      thumbUpFrames   = 0;
-      thumbDownFrames = 0;
+  if (up) {
+    thumbUpFrames++;
+    thumbDownFrames = 0;
+  } else if (down) {
+    thumbDownFrames++;
+    thumbUpFrames = 0;
+  } else {
+    thumbUpFrames = 0;
+    thumbDownFrames = 0;
+  }
+
+  if (now - lastThumbAction <= THUMB_COOLDOWN) return;
+
+  // 👍 YES / NEXT
+  if (thumbUpFrames >= THUMB_HOLD_NEED) {
+    lastThumbAction = now;
+    thumbUpFrames = 0;
+    thumbDownFrames = 0;
+
+    console.log("👍 偵測到比讚，overlayStep =", overlayStep);
+
+    if (overlayStep === 3) {
+      // 06 NEXT → 美妝濾鏡
+      if (typeof goLowScoreNext === "function") goLowScoreNext();
+      else if (btnLowNext) btnLowNext.click();
+
+    } else if (overlayStep === 6 && btnPopup2Next) {
+      // 08 NEXT → 動畫2 / 濾鏡二
+      stopHandsCamera();
+      overlayStep = 7;
+      btnPopup2Next.click();
+
+    } else if (overlayStep === 8 && btnPopup3Next) {
+      // 09 NEXT → IG 頁面
+      stopHandsCamera();
+      btnPopup3Next.click();
     }
 
-    if (now - lastThumbAction > THUMB_COOLDOWN) {
-      // 👍 YES / NEXT
-      if (thumbUpFrames >= THUMB_HOLD_NEED) {
-        lastThumbAction = now;
-        thumbUpFrames   = 0;
-        thumbDownFrames = 0;
-
-        console.log("👍 偵測到比讚，overlayStep =", overlayStep);
-
-        if (overlayStep === 3) {
-          // 06 NEXT → 美妝濾鏡
-          if (typeof goLowScoreNext === "function") {
-            goLowScoreNext();
-          } else if (btnLowNext) {
-            btnLowNext.click();
-          }
-
-        } else if (overlayStep === 6 && btnPopup2Next) {
-          // 08 NEXT → 動畫2 / 濾鏡二
-          stopHandsCamera();
-          overlayStep = 7;
-          btnPopup2Next.click();
-
-        } else if (overlayStep === 8 && btnPopup3Next) {
-          // 09 NEXT → IG 頁面
-          stopHandsCamera();
-          btnPopup3Next.click();
-        }
-
-        return;
-      }
-
-      // 👎 NO / OFF
-      if (thumbDownFrames >= THUMB_HOLD_NEED) {
-        lastThumbAction = now;
-        thumbUpFrames   = 0;
-        thumbDownFrames = 0;
-
-        console.log("👎 偵測到倒讚，overlayStep =", overlayStep);
-
-        if (overlayStep === 3) {
-          // 06 OFF → 07-2 OFF 結束體驗路線
-          if (typeof goLowScoreOffTo07_2 === "function") {
-            goLowScoreOffTo07_2();
-          } else if (btnLowOff) {
-            btnLowOff.click();
-          }
-
-        } else if (overlayStep === 6) {
-          // 👎 08 OFF → 07-2 覆蓋在濾鏡一拍照畫面上
-          console.log("👎 08 OFF → 07-2 覆蓋在濾鏡一拍照畫面上");
-
-          stopHandsCamera();
-
-          if (popup2Overlay) popup2Overlay.style.display = "none";
-
-          if (photoOffOverlay) {
-            photoOffOverlay.style.display = "flex";
-            photoOffOverlay.style.zIndex  = "50";
-          }
-
-          overlayStep = 5;
-          return;
-
-        } else if (overlayStep === 8) {
-          // 👎 09 OFF → 07-2 覆蓋在 07 打卡畫面上
-          console.log("👎 09 OFF → 07-2 覆蓋在 07 打卡畫面上");
-
-          stopHandsCamera();
-
-          if (popup3Overlay) popup3Overlay.style.display = "none";
-
-          if (photoFinishOverlay) {
-            photoFinishOverlay.style.display = "flex";
-          }
-
-          if (photoOffOverlay) {
-            photoOffOverlay.style.display = "flex";
-            photoOffOverlay.style.zIndex  = "50";
-          }
-
-          overlayStep = 5;
-          return;
-        }
-
-        return;
-      }
-    }
-
-    // 在 06 / 08 / 09 頁面時，不用再做 YA / 揮動
     return;
   }
 
-  // ===============================
-  //  濾鏡階段：
-  //   filterPhase = 1 → 美妝濾鏡（揮動 + YA）
-  //   filterPhase = 2 → 文字濾鏡（只要 YA 拍照）
-  // ===============================
-  if (filterPhase !== 1 && filterPhase !== 2) {
-    swipeStartX  = null;
-    yaHoldFrames = 0;
-    return;
-  }
+  // 👎 NO / OFF
+  if (thumbDownFrames >= THUMB_HOLD_NEED) {
+    lastThumbAction = now;
+    thumbUpFrames = 0;
+    thumbDownFrames = 0;
 
-  const wrist = lm[0];
+    console.log("👎 偵測到倒讚，overlayStep =", overlayStep);
 
-  // ------ Swipe 揮動換濾鏡（只在濾鏡一啟用） ------
-  if (filterPhase === 1) {
-    if (swipeStartX === null) {
-      swipeStartX    = wrist.x;
-      swipeStartTime = now;
-    } else {
-      const dx = wrist.x - swipeStartX;
-      const dt = now - swipeStartTime;
+    if (overlayStep === 3) {
+      // 06 OFF → 07-2 OFF 流程
+      if (typeof goLowScoreOffTo07_2 === "function") goLowScoreOffTo07_2();
+      else if (btnLowOff) btnLowOff.click();
 
-      if ((now - lastSwipeTime) >= SWIPE_COOLDOWN) {
-        if (dt <= SWIPE_MAX_DURATION && Math.abs(dx) > SWIPE_MIN_DISTANCE) {
-          if (dx > 0) {
-            changeMakeupStyle(+1);
-            console.log("👉 揮動：下一個濾鏡");
-          } else {
-            changeMakeupStyle(-1);
-            console.log("👈 揮動：上一個濾鏡");
-          }
+    } else if (overlayStep === 6) {
+      // 08 OFF → 07-2 覆蓋在濾鏡一拍照畫面上
+      stopHandsCamera();
 
-          lastSwipeTime  = now;
-          swipeStartX    = null;
-          swipeStartTime = now;
-        }
-
-        if (dt > SWIPE_MAX_DURATION) {
-          swipeStartX    = wrist.x;
-          swipeStartTime = now;
-        }
+      if (popup2Overlay) popup2Overlay.style.display = "none";
+      if (photoOffOverlay) {
+        photoOffOverlay.style.display = "flex";
+        photoOffOverlay.style.zIndex  = "50";
       }
-    }
-  } else {
-    // 濾鏡二不需要 swipe
-    swipeStartX = null;
-  }
+      overlayStep = 5;
 
-  // ------ YA 拍照（濾鏡一 + 濾鏡二 共用） ------
-  if (isYAGesture(lm)) {
-    yaHoldFrames++;
-  } else {
-    yaHoldFrames = 0;
-  }
+    } else if (overlayStep === 8) {
+      // 09 OFF → 07-2 覆蓋在 07 打卡畫面上
+      stopHandsCamera();
 
-  if (
-    yaHoldFrames >= YA_HOLD_NEED &&
-    (now - lastShotTime) > YA_SHOT_COOLDOWN
-  ) {
-    lastShotTime = now;
-    yaHoldFrames = 0;
-
-    console.log("✌️ YA 拍照，filterPhase =", filterPhase);
-
-    if (filterPhase === 1) {
-      takeMakeupPhoto();   // 濾鏡一：美妝 → 07
-    } else if (filterPhase === 2) {
-      takeTextPhoto();     // 濾鏡二：文字 → 07
+      if (popup3Overlay) popup3Overlay.style.display = "none";
+      if (photoFinishOverlay) photoFinishOverlay.style.display = "flex";
+      if (photoOffOverlay) {
+        photoOffOverlay.style.display = "flex";
+        photoOffOverlay.style.zIndex  = "50";
+      }
+      overlayStep = 5;
     }
   }
 }
 
-// Hands 綁上結果處理（一定要在函式定義後）
 hands.onResults(handleHandsResults);
+
 
 // ===============================
 //  啟動 / 停止 Hands 專用 Camera
@@ -564,6 +432,7 @@ hands.onResults(handleHandsResults);
 let handsCamera        = null;
 let handsCameraStarted = false;
 
+// ✅ 建議：只在 06 / 08 / 09 叫它（你目前流程就是這樣）
 function startHandsCamera() {
   if (handsCameraStarted) {
     console.log("✋ startHandsCamera 已啟動，略過");
@@ -583,14 +452,14 @@ function startHandsCamera() {
       handsCamera = new Camera(mkVideo, {
         onFrame: async () => {
           if (!mkVideo.videoWidth) return;
-          await hands.send({ image: mkVideo });   // 只送給 Hands
+          await hands.send({ image: mkVideo });
         },
         width: 1080,
         height: 1920
       });
 
       handsCamera.start();
-      console.log("✅ startHandsCamera 啟動完成");
+      console.log("✅ startHandsCamera 啟動完成（👍👎 only）");
     })
     .catch(err => {
       console.error("❌ startHandsCamera 失敗：", err);
@@ -602,11 +471,8 @@ function stopHandsCamera() {
   handsCameraStarted = false;
 
   if (handsCamera) {
-    try {
-      handsCamera.stop();
-    } catch (e) {
-      console.warn("stopHandsCamera stop() 失敗：", e);
-    }
+    try { handsCamera.stop(); }
+    catch (e) { console.warn("stopHandsCamera stop() 失敗：", e); }
     handsCamera = null;
   }
 
@@ -617,7 +483,6 @@ function stopHandsCamera() {
 
   console.log("✋ stopHandsCamera 已停止");
 }
-
 // ===============================
 //   Part 5 : 07 → 08 → 09 → IG & 結束體驗
 // ===============================

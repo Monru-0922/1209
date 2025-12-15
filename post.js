@@ -1,7 +1,8 @@
-
 // ===============================
 //   IG 發文頁：按讚 / 留言 / 結束體驗
 // ===============================
+let postUIInited = false;
+
 function initPostUI() {
   if (postUIInited) return;
   postUIInited = true;
@@ -12,41 +13,44 @@ function initPostUI() {
   const commentSend  = document.getElementById("commentSendBtn");
   const commentsList = document.getElementById("commentsList");
   const glitchEl     = document.getElementById("glitchScore");
+  const postImageEl  = document.getElementById("postImage");
 
-  if (!likeBtn || !likesCountEl || !postImage) return;
+  // ✅ Debug：缺什麼就印什麼（你一進 IG 看 console 就知道問題）
+  const missing = [];
+  if (!postImageEl)  missing.push("postImage");
+  if (!likeBtn)      missing.push("likeBtn");
+  if (!likesCountEl) missing.push("likesCount");
+  if (!commentInput) missing.push("commentInput");
+  if (!commentSend)  missing.push("commentSendBtn");
+  if (!commentsList) missing.push("commentsList");
+  if (missing.length) console.warn("⚠️ initPostUI 缺少 DOM：", missing.join(", "));
 
   // 讀取剛剛存的照片（美妝 or 文字濾鏡）
   const imgData = localStorage.getItem("capturedImage");
-  if (imgData) {
-    postImage.src = imgData;
-  } else {
-    // 如果沒有，就用一張預設圖
-    postImage.src = "image/評分-08.png";
-  }
+  if (postImageEl) postImageEl.src = imgData || "image/評分-08.png";
 
-  // ❤️ 按讚數
+  // ❤️ 按讚（缺 like DOM 就跳過，但不影響留言）
   let liked = false;
   let likes = 0;
 
   function updateLikes() {
-    likesCountEl.textContent = `${likes} likes`;
+    if (likesCountEl) likesCountEl.textContent = `${likes} likes`;
   }
 
   function toggleLike() {
     liked = !liked;
-    likeBtn.textContent = liked ? "❤️" : "♡";
+    if (likeBtn) likeBtn.textContent = liked ? "❤️" : "♡";
     likes += liked ? 1 : -1;
     if (likes < 0) likes = 0;
     updateLikes();
   }
 
-  likeBtn.addEventListener("click", toggleLike);
-
-  // 雙擊圖片也按讚
-  postImage.addEventListener("dblclick", () => {
-    if (!liked) toggleLike();
-  });
-
+  if (likeBtn) likeBtn.addEventListener("click", toggleLike);
+  if (postImageEl) {
+    postImageEl.addEventListener("dblclick", () => {
+      if (!liked) toggleLike();
+    });
+  }
   updateLikes();
 
   // 💬 留言
@@ -58,14 +62,10 @@ function initPostUI() {
     const p = document.createElement("p");
     p.innerHTML = `<strong>MODEL：</strong> ${text}`;
     commentsList.prepend(p);
-
     commentInput.value = "";
   }
 
-  if (commentSend) {
-    commentSend.addEventListener("click", postComment);
-  }
-
+  if (commentSend) commentSend.addEventListener("click", postComment);
   if (commentInput) {
     commentInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -75,37 +75,22 @@ function initPostUI() {
     });
   }
 
-  // 當機特效分數 Glitch
+  // glitch 特效
   if (glitchEl) {
     let glitchStarted = true;
-
     function randomGlitch() {
       if (!glitchStarted) return;
-
       glitchEl.style.opacity = "1";
-      setTimeout(() => {
-        glitchEl.style.opacity = "0";
-      }, 120 + Math.random() * 200);
-
+      setTimeout(() => (glitchEl.style.opacity = "0"), 120 + Math.random() * 200);
       setTimeout(randomGlitch, 600 + Math.random() * 1200);
     }
-
     randomGlitch();
   }
 
-  // IG 頁面裡的「結束體驗」按鈕
-  if (btnEndPostIg) {
-    btnEndPostIg.addEventListener("click", () => {
-      console.log("⏹ IG 手機框內 結束體驗");
-      endExperience();
-    });
-  }
+  // 結束體驗按鈕（你的 endExperience 在 script.js 裡，post.js 可直接呼叫）
+  const btnEndPostIg    = document.getElementById("btn-end-post-ig");
+  const btnEndPostOuter = document.getElementById("btn-end-post");
 
-  // 外層那顆「結束體驗」按鈕
-  if (btnEndPostOuter) {
-    btnEndPostOuter.addEventListener("click", () => {
-      console.log("⏹ IG 外層 結束體驗");
-      endExperience();
-    });
-  }
+  if (btnEndPostIg) btnEndPostIg.addEventListener("click", () => endExperience());
+  if (btnEndPostOuter) btnEndPostOuter.addEventListener("click", () => endExperience());
 }

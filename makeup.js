@@ -21,6 +21,7 @@ function shouldProcessFrame() {
 const mkCtx       = mkCanvas.getContext("2d");
 const mkRawBuffer = document.createElement("canvas");
 const mkRawCtx    = mkRawBuffer.getContext("2d");
+
 let mkCamera = null;
 let fmBusy = false;
 
@@ -30,11 +31,12 @@ let isInMakeupMode = false;
 let enterBound = false;
 let autoShotTimer = null;
 let autoShotLocked = false;
+
 const AUTO_SHOT_MS = 20000;
 
 
 // ===============================
-// 倒數顯示（美妝 + 文字 共用）
+// 倒數顯示（美妝 / 文字 共用）
 // ===============================
 const mkCountdownEl = document.getElementById("mk-countdown");
 let mkCountdownTimer = null;
@@ -49,7 +51,6 @@ function startMakeupCountdown(seconds) {
   mkCountdownEl.style.display = "block";
 
   mkCountdownTimer = setInterval(() => {
-    // 只要在任何濾鏡階段就顯示：1=美妝, 2=文字
     if (filterPhase !== 1 && filterPhase !== 2) {
       stopMakeupCountdown();
       return;
@@ -61,7 +62,6 @@ function startMakeupCountdown(seconds) {
       stopMakeupCountdown();
       return;
     }
-
     mkCountdownEl.textContent = remain;
   }, 1000);
 }
@@ -147,10 +147,8 @@ function startMakeupFilter() {
   isInMakeupMode = true;
   autoShotLocked = false;
 
-  // ✅ 啟動倒數
   startMakeupCountdown(AUTO_SHOT_MS / 1000);
 
-  // ✅ 自動拍照（先清掉舊的，避免重複）
   if (autoShotTimer) clearTimeout(autoShotTimer);
   autoShotTimer = setTimeout(() => {
     if (isInMakeupMode && !autoShotLocked) {
@@ -180,8 +178,7 @@ function startMakeupFilter() {
       });
 
       mkCamera.start();
-    })
-    .catch(err => console.error("startMakeupFilter getUserMedia 失敗：", err));
+    });
 }
 
 
@@ -190,8 +187,6 @@ function startMakeupFilter() {
 // ===============================
 let fx = 0, fy = 0, fw = 0;
 let lx = 0, ly = 0, lw = 0;
-
-// ✅ 讓第一幀不要從 0 慢慢追（避免一開始飄）
 let mkInited = false;
 
 const LIP_Y_OFFSET = -0.20;
@@ -217,7 +212,6 @@ faceMesh.onResults(res => {
   mkCanvas.width = mkRawBuffer.width = w;
   mkCanvas.height = mkRawBuffer.height = h;
 
-  // 鏡像相機
   mkRawCtx.save();
   mkRawCtx.translate(w, 0);
   mkRawCtx.scale(-1, 1);
@@ -229,7 +223,7 @@ faceMesh.onResults(res => {
 
   const lm = res.multiFaceLandmarks[0];
 
-  // ----- 臉（粉底） -----
+  // 臉
   const L = (1 - lm[234].x) * w;
   const R = (1 - lm[454].x) * w;
   const T = lm[10].y * h;
@@ -248,11 +242,10 @@ faceMesh.onResults(res => {
     fw += (faceW - fw) * 0.25;
   }
 
-  // ✅ 用圖片比例算高度（你原本用 fw,fw 會把臉拉伸）
   const faceH = fw * (faceImg.height / faceImg.width || 1);
   mkCtx.drawImage(faceImg, fx - fw / 2, fy - faceH / 2 + 30, fw, faceH);
 
-  // ----- 唇 -----
+  // 唇
   const lX = (1 - lm[61].x)  * w;
   const rX = (1 - lm[291].x) * w;
   const tY = lm[13].y * h;
@@ -260,21 +253,16 @@ faceMesh.onResults(res => {
 
   const lipCX = (lX + rX) / 2;
   const lipCY = ((tY + bY) / 2) + Math.abs(rX - lX) * LIP_Y_OFFSET;
+  const lipW  = Math.abs(rX - lX) * 16.1;
 
-  const lipW = Math.abs(rX - lX) * 16.1;
-
-  if (!lw) {
-    lx = lipCX; ly = lipCY; lw = lipW;
-  } else {
-    lx += (lipCX - lx) * 0.25;
-    ly += (lipCY - ly) * 0.25;
-    lw += (lipW - lw) * 0.25;
-  }
+  lx += (lipCX - lx) * 0.25;
+  ly += (lipCY - ly) * 0.25;
+  lw += (lipW  - lw) * 0.25;
 
   const lipH = lw * (lipImg.height / lipImg.width || 1);
   mkCtx.drawImage(lipImg, lx - lw / 2, ly - lipH / 2, lw, lipH);
 
-  // ----- 腮紅 -----
+  // 腮紅
   const blushSize = fw * 0.9;
   mkCtx.save();
   mkCtx.globalAlpha = 0.85;
@@ -295,11 +283,10 @@ faceMesh.onResults(res => {
 
   mkCtx.restore();
 
-  // ✅✅✅ 眼影 / 眼線（加回來） ✅✅✅
+  // 眼影 / 眼線
   const eyeW = fw * 0.22;
   const eyeH = eyeW * (eyeImg.height / eyeImg.width || 1);
 
-  // 左眼
   mkCtx.drawImage(
     eyeImg,
     (1 - lm[159].x) * w - eyeW / 2 + 2,
@@ -307,7 +294,6 @@ faceMesh.onResults(res => {
     eyeW, eyeH
   );
 
-  // 右眼（鏡像）
   mkCtx.save();
   mkCtx.translate((1 - lm[386].x) * w + 2, lm[386].y * h + 1.5);
   mkCtx.scale(-1, 1);

@@ -3,6 +3,7 @@
 //   Enter 切換濾鏡
 //   20 秒倒數 → 自動拍照
 //   腮紅 / 眼影保留，眉毛移除
+//   ✅ 倒數交給 script.js 管
 // ===============================
 
 
@@ -33,46 +34,6 @@ let autoShotTimer = null;
 let autoShotLocked = false;
 
 const AUTO_SHOT_MS = 20000;
-
-
-// ===============================
-// 倒數顯示（美妝 / 文字 共用）
-// ===============================
-const mkCountdownEl = document.getElementById("mk-countdown");
-let mkCountdownTimer = null;
-
-function startMakeupCountdown(seconds) {
-  if (!mkCountdownEl) return;
-
-  stopMakeupCountdown();
-
-  let remain = Math.ceil(seconds);
-  mkCountdownEl.textContent = remain;
-  mkCountdownEl.style.display = "block";
-
-  mkCountdownTimer = setInterval(() => {
-    if (filterPhase !== 1 && filterPhase !== 2) {
-      stopMakeupCountdown();
-      return;
-    }
-
-    remain--;
-    if (remain <= 0) {
-      mkCountdownEl.textContent = "0";
-      stopMakeupCountdown();
-      return;
-    }
-    mkCountdownEl.textContent = remain;
-  }, 1000);
-}
-
-function stopMakeupCountdown() {
-  if (mkCountdownTimer) {
-    clearInterval(mkCountdownTimer);
-    mkCountdownTimer = null;
-  }
-  if (mkCountdownEl) mkCountdownEl.style.display = "none";
-}
 
 
 // ===============================
@@ -147,7 +108,10 @@ function startMakeupFilter() {
   isInMakeupMode = true;
   autoShotLocked = false;
 
-  startMakeupCountdown(AUTO_SHOT_MS / 1000);
+  // ✅ 倒數交給 script.js
+  if (window.startMakeupCountdown) {
+    window.startMakeupCountdown(20);
+  }
 
   if (autoShotTimer) clearTimeout(autoShotTimer);
   autoShotTimer = setTimeout(() => {
@@ -246,7 +210,7 @@ faceMesh.onResults(res => {
   mkCtx.drawImage(faceImg, fx - fw / 2, fy - faceH / 2 + 30, fw, faceH);
 
   // 唇
-  const lX = (1 - lm[61].x)  * w;
+  const lX = (1 - lm[61].x) * w;
   const rX = (1 - lm[291].x) * w;
   const tY = lm[13].y * h;
   const bY = lm[14].y * h;
@@ -311,6 +275,8 @@ function takeMakeupPhoto() {
 
   uiPhotoFinish.src = photo;
   postImage.src = photo;
+
+  // ✅ 先顯示 07（打卡畫面）
   photoFinishOverlay.style.display = "flex";
 
   isInMakeupMode = false;
@@ -320,6 +286,9 @@ function takeMakeupPhoto() {
   autoShotTimer = null;
 
   stopMakeupCamera();
+
+  // ✅✅✅ 新增：讓 07 出現後跑 8 秒 → Window2
+  runAutoFrom07();
 }
 
 
@@ -339,3 +308,53 @@ function stopMakeupCamera() {
 
   fmBusy = false;
 }
+// ===============================
+// 美妝倒數結束 → 自動拍照 → 跳 07
+// 給 script.js 呼叫用
+// ===============================
+window.makeupAutoCapture = function () {
+  try {
+    // 1) 先把美妝選單/框暫時隱藏（避免截到選單畫面）
+    setMakeupUIVisible(false);
+
+    // 2) 等 2 幀：讓你的 mkCanvas 有機會畫出「只有臉+妝」的最後一刻
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+
+        // ✅ 建議：把 mkCanvas 當下畫面「拷貝」到 offscreen，避免後面停掉循環時畫面被改掉
+        const snap = document.createElement("canvas");
+        snap.width = mkCanvas.width;
+        snap.height = mkCanvas.height;
+        snap.getContext("2d").drawImage(mkCanvas, 0, 0);
+
+        // 3) 塞進 07 的 img
+        const img = document.getElementById("ui-photo-finish");
+        if (img) img.src = snap.toDataURL("image/jpeg", 0.92);
+
+        // 4) 顯示 07（打卡框），並關掉美妝頁
+        const mkStageEl = document.getElementById("mk-stage");
+        const photoFinishOverlay = document.getElementById("photo-finish-overlay");
+
+        if (mkStageEl) mkStageEl.style.display = "none";
+        if (photoFinishOverlay) photoFinishOverlay.style.display = "flex";
+
+        // 5) 回復 UI（其實 mkStage 已 hidden，回不回都行，但保險起見）
+        setMakeupUIVisible(true);
+
+        // 6) 更新狀態，跑你原本 07 → 08 的計時流程
+        window.overlayStep = 5;
+        if (typeof window.runAutoFrom07 === "function") window.runAutoFrom07();
+
+        // 7) 最後再停掉美妝 loop/camera（避免你停太早導致截到的是「選單那一幀」）
+        if (typeof window.stopMakeupFilter === "function") window.stopMakeupFilter();
+
+        console.log("✅ 美妝拍照：已保留最後妝容並跳到 07");
+      });
+    });
+
+  } catch (e) {
+    console.error("❌ makeupAutoCapture 失敗：", e);
+    // 失敗也要把 UI 放回來，避免卡死
+    try { setMakeupUIVisible(true); } catch {}
+  }
+};

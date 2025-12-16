@@ -1,9 +1,23 @@
 // ===============================
-//   AR INTERACTION FLOW CONTROL
+//   script.js (整理版)
 //   Part 1: Intro → Enter → AR → Scan → 05 → 06
+//   Part 4: Hands (👍👎 only for 06/08/09)
+//   Part 5: 07 → 08 → 動畫2 → 文字濾鏡 → 07 → 09 → IG
+//   ✅ 修：動畫2被蓋住 / 倒數被蓋住 or 被 stop
+//   ✅ 倒數統一改看 overlayStep：4=美妝、7=文字
 // ===============================
 
-// --- 1. 9:16 scale ---
+
+// ----------------------------------
+// 0) 小工具：安全取 DOM
+// ----------------------------------
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+
+// ----------------------------------
+// 1) 9:16 scale
+// ----------------------------------
 function calculateScale() {
   const baseW = 1080;
   const baseH = 1920;
@@ -15,45 +29,47 @@ function calculateScale() {
 calculateScale();
 window.addEventListener("resize", calculateScale);
 
+
 // ----------------------------------
-// DOM ELEMENTS
+// 2) DOM ELEMENTS
 // ----------------------------------
 
-// Intro
+// Root
+const viewport = document.getElementById("ar-viewport");
+
+// Intro 1
 const introContainer = document.getElementById("intro-container");
 const introVideo     = document.getElementById("intro-video");
 
-// AR scene
-const arScene        = document.getElementById("ar-scene");
-const cameraOverlay  = document.getElementById("camera-overlay");
+// AR
+const arScene       = document.getElementById("ar-scene");
+const cameraOverlay = document.getElementById("camera-overlay");
 
 // Scan
-const scanOverlay    = document.getElementById("scan-overlay");
-const scanCountdown  = document.getElementById("scan-countdown");
-const scanBar        = document.getElementById("scan-bar");
-const scanBar2       = document.getElementById("scan-bar-2");
-const scanBg         = document.getElementById("scan-bg");
+const scanOverlay   = document.getElementById("scan-overlay");
+const scanCountdown = document.getElementById("scan-countdown");
+const scanBar       = document.getElementById("scan-bar");
+const scanBar2      = document.getElementById("scan-bar-2");
+const scanBg        = document.getElementById("scan-bg");
 
-// 濾鏡用框
-const frameMakeup = document.querySelector(".frame-makeup"); // imge/frame.png
-const frameText   = document.querySelector(".frame-text");   // image/frame2.png
+// Frames
+const frameMakeup = document.querySelector(".frame-makeup");
+const frameText   = document.querySelector(".frame-text");
 
 // 04 / 05 / 06
 const detectFinishOverlay = document.getElementById("detect-finish-overlay");
 const ratingOverlay       = document.getElementById("rating-overlay");
 const lowScoreOverlay     = document.getElementById("low-score-overlay");
-const btnScoreDone        = document.getElementById("btn-score-done");
 const btnLowOff           = document.getElementById("btn-off");
 const btnLowNext          = document.getElementById("btn-next");
 
-/* ✅ 底下五顆圈圈 img（美妝濾鏡用） */
+// Bottom nav (makeup)
 const navImgs = document.querySelectorAll(".nav img");
 const navBar  = document.querySelector("#mk-stage .nav");
 
 // 07 / 08 / 09
 const photoFinishOverlay = document.getElementById("photo-finish-overlay");
 const uiPhotoFinish      = document.getElementById("ui-photo-finish");
-const btnContinue        = document.getElementById("btn-continue");
 
 const popup2Overlay   = document.getElementById("popup2-overlay");
 const popup3Overlay   = document.getElementById("popup3-overlay");
@@ -71,41 +87,168 @@ const filterSelectOverlay = document.getElementById("filter-select-overlay");
 const filterVideo         = document.getElementById("filter-video");
 const filterBg            = document.getElementById("filter-bg");
 const faceOverlayEl       = document.getElementById("faceOverlay");
-const filtersWrapper      = document.querySelector("#filter-select-overlay .filters-wrapper");
-const filterPhone         = document.querySelector("#filter-select-overlay .phone");
-const btnTakePhoto        = document.getElementById("btn-take-photo");
 
-// Makeup Canvas
+// Makeup stage elements (給 Hands 相機用)
 const mkVideo  = document.getElementById("mk-video");
 const mkCanvas = document.getElementById("mk-canvas");
 const mkStage  = document.getElementById("mk-stage");
 
 // IG
-const postOverlay   = document.getElementById("post-overlay");
-const postImage     = document.getElementById("postImage");
-const btnEndPost    = document.getElementById("btn-end-post");
-const btnEnd        = document.getElementById("btn-end");
+const postOverlay = document.getElementById("post-overlay");
 
-// 額外 DOM（Part 5）
+// OFF flow
 const photoOffOverlay = document.getElementById("photo-off-overlay");
 const btnEndOff       = document.getElementById("btn-end-off");
-const btnEndPostIg    = document.getElementById("btn-end-post-ig");
-const btnEndPostOuter = document.getElementById("btn-end-post");
+
 
 // ----------------------------------
-// STATES
+// 3) STATES
 // ----------------------------------
-let arStarted     = false;
-let isScanning    = false;
-let hasScanDone   = false;
-let filterPhase   = 0;  // 1 = makeup, 2 = text
-let isOffFlow     = false;
-let overlayStep   = 0;
+let arStarted   = false;
+let isScanning  = false;
+let hasScanDone = false;
 
-let gestureEnabled = false; // 手勢 flag
+let filterPhase = 0;   // 1 = makeup, 2 = text（保留給你其他檔案用）
+let isOffFlow   = false;
+let overlayStep = 0;   // ✅ 重要：倒數只靠它判斷：4=美妝、7=文字
+
+// overlayStep 建議對照：
+// 2=05評分表, 3=06視窗, 4=美妝濾鏡, 5=07打卡, 6=08視窗, 7=文字濾鏡, 8=09視窗, 9=IG
+
 
 // ----------------------------------
-// Intro Loop (第一次進頁面)
+// 4) 倒數：統一置中大字（你指定的樣式）
+//    ✅ 會自動建立 #mk-countdown，確保看得到
+//    ✅ 只在 overlayStep === 4 或 7 顯示
+// ----------------------------------
+let mkCountdownEl = document.getElementById("mk-countdown");
+let mkCountdownTimer = null;
+
+function ensureCountdownEl() {
+  if (mkCountdownEl) return;
+
+  mkCountdownEl = document.createElement("div");
+  mkCountdownEl.id = "mk-countdown";
+
+  // 你指定的樣式（直接寫在 JS，避免 CSS 沒套到）
+  mkCountdownEl.style.position = "absolute";
+  mkCountdownEl.style.left = "50%";
+  mkCountdownEl.style.top = "50%";
+  mkCountdownEl.style.transform = "translate(-50%, -50%)";
+  mkCountdownEl.style.fontSize = "180px";
+  mkCountdownEl.style.fontWeight = "900";
+  mkCountdownEl.style.color = "#ffffff";
+  mkCountdownEl.style.textShadow = "0 0 12px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.9)";
+  mkCountdownEl.style.letterSpacing = "10px";
+
+  // ✅ 必須比所有 overlay 高，不然你會「以為沒顯示」
+  mkCountdownEl.style.zIndex = "9999";
+  mkCountdownEl.style.pointerEvents = "none";
+  mkCountdownEl.style.display = "none";
+
+  (viewport || document.body).appendChild(mkCountdownEl);
+}
+
+function stopCenterCountdown() {
+  if (mkCountdownTimer) {
+    clearInterval(mkCountdownTimer);
+    mkCountdownTimer = null;
+  }
+  if (mkCountdownEl) mkCountdownEl.style.display = "none";
+}
+
+function startCenterCountdown(seconds, onDone) {
+  ensureCountdownEl();
+  stopCenterCountdown();
+
+  let remain = Math.ceil(seconds);
+  mkCountdownEl.textContent = remain;
+  mkCountdownEl.style.display = "block";
+
+  mkCountdownTimer = setInterval(() => {
+    // ✅ 只在「美妝(4) 或 文字(7)」才允許顯示
+    if (overlayStep !== 4 && overlayStep !== 7) {
+      stopCenterCountdown();
+      return;
+    }
+
+    remain--;
+    if (remain <= 0) {
+      mkCountdownEl.textContent = "0";
+      stopCenterCountdown();
+
+      // ✅ 倒數結束 callback
+      if (typeof onDone === "function") onDone();
+      return;
+    }
+
+    mkCountdownEl.textContent = remain;
+  }, 1000);
+}
+
+
+
+window.startMakeupCountdown = (sec, cb) => startCenterCountdown(sec, cb);
+window.stopMakeupCountdown  = () => stopCenterCountdown();
+
+
+
+// ----------------------------------
+// 5) 統一：隱藏所有 overlay（避免互蓋）
+// ----------------------------------
+function hideAllOverlays() {
+  if (cameraOverlay)      cameraOverlay.style.display = "none";
+  if (scanOverlay)        scanOverlay.style.display = "none";
+  if (detectFinishOverlay)detectFinishOverlay.style.display = "none";
+  if (ratingOverlay)      ratingOverlay.style.display = "none";
+  if (lowScoreOverlay)    lowScoreOverlay.style.display = "none";
+
+  if (filterSelectOverlay)filterSelectOverlay.style.display = "none";
+  if (photoFinishOverlay) photoFinishOverlay.style.display = "none";
+  if (photoOffOverlay)    photoOffOverlay.style.display = "none";
+  if (popup2Overlay)      popup2Overlay.style.display = "none";
+  if (popup3Overlay)      popup3Overlay.style.display = "none";
+  if (postOverlay)        postOverlay.style.display = "none";
+  if (intro2Container)    intro2Container.style.display = "none";
+}
+
+
+// ----------------------------------
+// Audio unlock（放外面，只宣告一次）
+// ----------------------------------
+let audioUnlocked = false;
+
+function unlockAudioOnce() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+
+  // ✅ 解鎖動畫2（intro2Video）的聲音
+  if (!intro2Video) return;
+
+  intro2Video.muted = true;
+  const p = intro2Video.play();
+
+  if (p && typeof p.then === "function") {
+    p.then(() => {
+      intro2Video.pause();
+      intro2Video.currentTime = 0;
+      intro2Video.muted = false;
+    }).catch(() => {
+      intro2Video.muted = false;
+    });
+  } else {
+    // fallback
+    try {
+      intro2Video.pause();
+      intro2Video.currentTime = 0;
+      intro2Video.muted = false;
+    } catch {}
+  }
+}
+
+
+// ----------------------------------
+// 6) Intro 1 (loop)
 // ----------------------------------
 function startIntroLoop() {
   if (!introVideo) return;
@@ -114,17 +257,18 @@ function startIntroLoop() {
   introVideo.currentTime = 0;
 
   if (introContainer) introContainer.style.display = "block";
-
   introVideo.play().catch(e => console.log("Intro loop fail", e));
 }
 
 // 播完整 Intro → 進 AR
 function playFinalIntroThenEnterAR() {
+  if (!introVideo) return;
+
   introVideo.loop  = false;
   introVideo.muted = false;
   introVideo.currentTime = 0;
 
-  introVideo.play();
+  introVideo.play().catch(()=>{});
 
   introVideo.onended = () => {
     introVideo.onended = null;
@@ -132,103 +276,101 @@ function playFinalIntroThenEnterAR() {
   };
 }
 
-// Enter key：進 AR
+// Enter key：先解鎖音效 → 再進 AR
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
 
-  if (!arStarted) {
-    playFinalIntroThenEnterAR();
-  }
+  unlockAudioOnce(); // ✅ 一定要在「使用者手勢」裡
+
+  if (!arStarted) playFinalIntroThenEnterAR();
 });
 
-// 進入 AR
+
+// ----------------------------------
+// 7) 進入 AR
+// ----------------------------------
 function enterARMode() {
   arStarted = true;
 
-  introContainer.style.display = "none";
+  if (introContainer) introContainer.style.display = "none";
 
-  arScene.style.display = "block";
-  cameraOverlay.style.display = "flex";
+  if (arScene) arScene.style.display = "block";
+  if (cameraOverlay) cameraOverlay.style.display = "flex";
 
-  setTimeout(() => {
-    startScanSequence();
-  }, 2000);
+  setTimeout(() => startScanSequence(), 2000);
 }
 
+
 // ----------------------------------
-// 掃描流程：倒數 → 04 → 05
+// 8) 掃描流程：倒數 → 04 → 05 → 06
 // ----------------------------------
 function startScanSequence() {
   isScanning = true;
-  scanOverlay.style.display = "flex";
+  if (scanOverlay) scanOverlay.style.display = "flex";
 
   let count = 5;
-  scanCountdown.textContent = count;
+  if (scanCountdown) {
+    scanCountdown.style.display = "block";
+    scanCountdown.textContent = count;
+  }
 
-  let t = setInterval(() => {
+  const t = setInterval(() => {
     count--;
     if (count > 0) {
-      scanCountdown.textContent = count;
+      if (scanCountdown) scanCountdown.textContent = count;
     } else {
       clearInterval(t);
-      scanCountdown.style.display = "none";
+      if (scanCountdown) scanCountdown.style.display = "none";
       startScanBarAnimation();
     }
   }, 1000);
 }
 
 function startScanBarAnimation() {
-  // 顯示「正在生成評分表」畫面
-  detectFinishOverlay.style.display = "flex";
+  if (detectFinishOverlay) detectFinishOverlay.style.display = "flex";
 
-  // 掃描橫桿動畫
-  scanOverlay.style.display = "flex";
-  scanBg.style.display = "none";
+  if (scanOverlay) scanOverlay.style.display = "flex";
+  if (scanBg) scanBg.style.display = "none";
 
   let pos1 = 20, dir1 = 1;
   let pos2 = 75, dir2 = -1;
   const start = Date.now();
-  const DURATION = 5000; // 掃描時間 5 秒
+  const DURATION = 5000;
 
-  scanBar.style.opacity  = 1;
-  scanBar2.style.opacity = 1;
+  if (scanBar)  scanBar.style.opacity  = 1;
+  if (scanBar2) scanBar2.style.opacity = 1;
 
-  let timer = setInterval(() => {
+  const timer = setInterval(() => {
     const elapsed = Date.now() - start;
 
-    // 第一條橫桿
     pos1 += dir1 * 0.8;
     if (pos1 >= 75) dir1 = -1;
     if (pos1 <= 20) dir1 = 1;
 
-    // 第二條橫桿
     pos2 += dir2 * 0.8;
     if (pos2 >= 75) dir2 = -1;
     if (pos2 <= 20) dir2 = 1;
 
-    scanBar.style.top  = pos1 + "%";
-    scanBar2.style.top = pos2 + "%";
+    if (scanBar)  scanBar.style.top  = pos1 + "%";
+    if (scanBar2) scanBar2.style.top = pos2 + "%";
 
-    // 掃描時間到了
     if (elapsed >= DURATION) {
       clearInterval(timer);
 
-      // 關閉掃描畫面 → 顯示評分表
-      scanOverlay.style.display   = "none";
-      ratingOverlay.style.display = "flex";
+      if (scanOverlay)   scanOverlay.style.display   = "none";
+      if (ratingOverlay) ratingOverlay.style.display = "flex";
 
       isScanning  = false;
       hasScanDone = true;
-      overlayStep = 2;  // 現在在 05 評分表畫面
+      overlayStep = 2;
 
-      // ⭐ 評分表停留 8 秒後，自動跳 06（覆蓋在上面）
+      // 05 停留 8 秒 → 自動顯示 06
       setTimeout(() => {
-        // 確認還停在評分表階段才跳
         if (overlayStep === 2) {
-          lowScoreOverlay.style.display = "flex"; // 顯示 06 視窗（蓋在評分表上）
+          if (lowScoreOverlay) lowScoreOverlay.style.display = "flex";
           overlayStep = 3;
-          startHandsCamera(); // 啟動手勢，讓 👍 / 👎 可以用
+          startHandsCamera();
           console.log("⏱️ 評分表停留 8 秒，自動進入 06");
         }
       }, 8000);
@@ -236,61 +378,71 @@ function startScanBarAnimation() {
   }, 16);
 }
 
-// ----------------------------------
-// 05 → 06
-// ----------------------------------
-if (btnScoreDone) {
-  btnScoreDone.addEventListener("click", () => {
-    lowScoreOverlay.style.display = "flex";
-    overlayStep = 3;
-    startHandsCamera();
-  });
-}
 
-// 06 ：OFF / NEXT 共用函式
+// ----------------------------------
+// 9) 06：OFF / NEXT
+// ----------------------------------
 function goLowScoreNext() {
   stopHandsCamera();
-  lowScoreOverlay.style.display = "none";
-  ratingOverlay.style.display   = "none";
-  cameraOverlay.style.display   = "none";
+  if (lowScoreOverlay) lowScoreOverlay.style.display = "none";
+  if (ratingOverlay)   ratingOverlay.style.display   = "none";
+  if (cameraOverlay)   cameraOverlay.style.display   = "none";
 
-  filterPhase = 1;   // 第一輪：美妝
+  filterPhase = 1;
   overlayStep = 4;
 
-  startMakeupFilter();
+
+ // ✅ 倒數 20 秒 → 結束就自動拍照 + 跳 07
+ startCenterCountdown(20, () => {
+  if (overlayStep !== 4) return;
+
+  // 交給 makeup.js 做「截圖 + 顯示 07」
+  if (typeof window.makeupAutoCapture === "function") {
+    window.makeupAutoCapture();
+  } else {
+    console.warn("⚠️ makeupAutoCapture 尚未定義（請在 makeup.js 補上）");
+  }
+ });
+
+
+  // ✅ 交給 makeup.js 開始真正濾鏡
+  if (typeof startMakeupFilter === "function") {
+    startMakeupFilter();
+  } else if (typeof window.startMakeupFilter === "function") {
+    window.startMakeupFilter();
+  } else {
+    console.warn("⚠️ startMakeupFilter 尚未定義（請確認 makeup.js 有載入）");
+  }
+
   console.log("🟢 06 NEXT → 美妝濾鏡");
 }
 
 function goLowScoreOffTo07_2() {
   stopHandsCamera();
-  if (lowScoreOverlay)      lowScoreOverlay.style.display      = "none";
-  if (detectFinishOverlay)  detectFinishOverlay.style.display  = "none";
+
+  if (lowScoreOverlay)     lowScoreOverlay.style.display     = "none";
+  if (detectFinishOverlay) detectFinishOverlay.style.display = "none";
 
   if (photoOffOverlay) {
     photoOffOverlay.style.display = "flex";
-    photoOffOverlay.style.zIndex  = "40";
+    photoOffOverlay.style.zIndex  = "50";
   }
 
   isOffFlow   = true;
   overlayStep = 5;
 
+  stopCenterCountdown();
+
   console.log("🟡 06 OFF → 07-2 覆蓋在 05 評分表上");
 }
 
-if (btnLowNext) {
-  btnLowNext.addEventListener("click", goLowScoreNext);
-}
-if (btnLowOff) {
-  btnLowOff.addEventListener("click", goLowScoreOffTo07_2);
-}
+if (btnLowNext) btnLowNext.addEventListener("click", goLowScoreNext);
+if (btnLowOff)  btnLowOff.addEventListener("click", goLowScoreOffTo07_2);
 
-// ===============================
-//   Part 4 : Hands - 👍👎 only (06 / 08 / 09)
-//   ✅ 移除 Swipe 換濾鏡
-//   ✅ 移除 YA 拍照
-//   ✅ 只保留 overlayStep === 3 / 6 / 8 的 👍👎
-// ===============================
 
+// ----------------------------------
+// 10) Hands - 👍👎 only (06 / 08 / 09)
+// ----------------------------------
 const hands = new Hands({
   locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
 });
@@ -302,28 +454,24 @@ hands.setOptions({
   minTrackingConfidence: 0.5
 });
 
-// 👍 / 👎 狀態
-let thumbUpFrames   = 0;
+let thumbUpFrames = 0;
 let thumbDownFrames = 0;
 let lastThumbAction = 0;
 
 const THUMB_HOLD_NEED = 2;
 const THUMB_COOLDOWN  = 1500;
 
-// ---------- 姿勢判斷 ----------
 function isThumbUp(lm) {
   const thumbTip = lm[4];
   const indexMcp = lm[5];
   return thumbTip.y < indexMcp.y - 0.02;
 }
-
 function isThumbDown(lm) {
   const thumbTip = lm[4];
   const indexMcp = lm[5];
   return thumbTip.y > indexMcp.y + 0.02;
 }
 
-// ---------- 手勢結果處理（只處理 06/08/09） ----------
 function handleHandsResults(results) {
   if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
     thumbUpFrames = 0;
@@ -331,16 +479,13 @@ function handleHandsResults(results) {
     return;
   }
 
-  // ✅ 只在 06 / 08 / 09 使用 👍👎
-  // 06：overlayStep === 3
-  // 08：overlayStep === 6
-  // 09：overlayStep === 8
+  // ✅ 只在 06/08/09 使用 👍👎
   if (overlayStep !== 3 && overlayStep !== 6 && overlayStep !== 8) return;
 
-  const lm  = results.multiHandLandmarks[0];
+  const lm = results.multiHandLandmarks[0];
   const now = performance.now();
 
-  const up   = isThumbUp(lm);
+  const up = isThumbUp(lm);
   const down = isThumbDown(lm);
 
   if (up) {
@@ -365,22 +510,15 @@ function handleHandsResults(results) {
     console.log("👍 偵測到比讚，overlayStep =", overlayStep);
 
     if (overlayStep === 3) {
-      // 06 NEXT → 美妝濾鏡
-      if (typeof goLowScoreNext === "function") goLowScoreNext();
-      else if (btnLowNext) btnLowNext.click();
-
+      goLowScoreNext();
     } else if (overlayStep === 6 && btnPopup2Next) {
-      // 08 NEXT → 動畫2 / 濾鏡二
       stopHandsCamera();
       overlayStep = 7;
       btnPopup2Next.click();
-
     } else if (overlayStep === 8 && btnPopup3Next) {
-      // 09 NEXT → IG 頁面
       stopHandsCamera();
       btnPopup3Next.click();
     }
-
     return;
   }
 
@@ -393,25 +531,17 @@ function handleHandsResults(results) {
     console.log("👎 偵測到倒讚，overlayStep =", overlayStep);
 
     if (overlayStep === 3) {
-      // 06 OFF → 07-2 OFF 流程
-      if (typeof goLowScoreOffTo07_2 === "function") goLowScoreOffTo07_2();
-      else if (btnLowOff) btnLowOff.click();
-
+      goLowScoreOffTo07_2();
     } else if (overlayStep === 6) {
-      // 08 OFF → 07-2 覆蓋在濾鏡一拍照畫面上
       stopHandsCamera();
-
       if (popup2Overlay) popup2Overlay.style.display = "none";
       if (photoOffOverlay) {
         photoOffOverlay.style.display = "flex";
         photoOffOverlay.style.zIndex  = "50";
       }
       overlayStep = 5;
-
     } else if (overlayStep === 8) {
-      // 09 OFF → 07-2 覆蓋在 07 打卡畫面上
       stopHandsCamera();
-
       if (popup3Overlay) popup3Overlay.style.display = "none";
       if (photoFinishOverlay) photoFinishOverlay.style.display = "flex";
       if (photoOffOverlay) {
@@ -422,22 +552,15 @@ function handleHandsResults(results) {
     }
   }
 }
-
 hands.onResults(handleHandsResults);
 
 
-// ===============================
-//  啟動 / 停止 Hands 專用 Camera
-// ===============================
-let handsCamera        = null;
+// Hands camera（只用 mkVideo 當來源）
+let handsCamera = null;
 let handsCameraStarted = false;
 
-// ✅ 建議：只在 06 / 08 / 09 叫它（你目前流程就是這樣）
 function startHandsCamera() {
-  if (handsCameraStarted) {
-    console.log("✋ startHandsCamera 已啟動，略過");
-    return;
-  }
+  if (handsCameraStarted) return;
   handsCameraStarted = true;
 
   if (!mkVideo) {
@@ -459,11 +582,8 @@ function startHandsCamera() {
       });
 
       handsCamera.start();
-      console.log("✅ startHandsCamera 啟動完成（👍👎 only）");
     })
-    .catch(err => {
-      console.error("❌ startHandsCamera 失敗：", err);
-    });
+    .catch(err => console.error("❌ startHandsCamera 失敗：", err));
 }
 
 function stopHandsCamera() {
@@ -471,8 +591,7 @@ function stopHandsCamera() {
   handsCameraStarted = false;
 
   if (handsCamera) {
-    try { handsCamera.stop(); }
-    catch (e) { console.warn("stopHandsCamera stop() 失敗：", e); }
+    try { handsCamera.stop(); } catch {}
     handsCamera = null;
   }
 
@@ -480,20 +599,17 @@ function stopHandsCamera() {
     mkVideo.srcObject.getTracks().forEach(t => t.stop());
     mkVideo.srcObject = null;
   }
-
-  console.log("✋ stopHandsCamera 已停止");
 }
-// ===============================
-//   Part 5 : 07 → 08 → 09 → IG & 結束體驗
-// ===============================
 
-// 統一結束體驗：重新整理頁面
+
+// ----------------------------------
+// 11) Part 5 : 07 → 08 → 09 → IG
+// ----------------------------------
 function endExperience() {
-  console.log("🔁 結束體驗 → 重新整理頁面");
   window.location.reload();
 }
 
-// 07：靜待 8 秒 → 自動跳下一頁（不顯示倒數）
+// 07：停 8 秒 → 自動跳
 let autoFrom07Timer = null;
 
 function runAutoFrom07() {
@@ -502,13 +618,11 @@ function runAutoFrom07() {
   autoFrom07Timer = setTimeout(() => {
     console.log("⏱ 07 停留 8 秒，自動跳下一頁");
 
-    // OFF 路線：結束體驗
     if (isOffFlow) {
       endExperience();
       return;
     }
 
-    // 第一輪濾鏡 → 自動跳 08
     if (filterPhase === 1) {
       if (popup2Overlay) popup2Overlay.style.display = "flex";
       overlayStep = 6;
@@ -516,7 +630,6 @@ function runAutoFrom07() {
       return;
     }
 
-    // 第二輪濾鏡 → 自動跳 09
     if (filterPhase === 2) {
       if (popup3Overlay) popup3Overlay.style.display = "flex";
       overlayStep = 8;
@@ -533,152 +646,151 @@ function stopAutoFrom07() {
   }
 }
 
-// 08 跳出視窗2：OFF / NEXT
+// 08：OFF
 if (btnPopup2Off) {
   btnPopup2Off.addEventListener("click", () => {
-    console.log("🟡 按鈕：08 OFF → 07-2 覆蓋在 07 上");
-
     if (popup2Overlay) popup2Overlay.style.display = "none";
-
     if (photoOffOverlay) {
       photoOffOverlay.style.display = "flex";
       photoOffOverlay.style.zIndex  = "50";
     }
-
     overlayStep = 5;
   });
 }
 
-if (btnEndOff && photoOffOverlay) {
-  btnEndOff.addEventListener("click", () => {
-    console.log("⏹ 07-2 OFF 結束體驗");
-    endExperience();
-  });
+// 07-2：結束
+if (btnEndOff) {
+  btnEndOff.addEventListener("click", () => endExperience());
 }
 
-// 08 NEXT → 動畫2 → 濾鏡二
+
+// ✅ 動畫2：保證在最上層顯示
+function showIntro2ThenStartText() {
+  stopCenterCountdown();        // 動畫2 不顯示倒數
+  stopHandsCamera();            // 進入文字前先停手勢
+
+  // 先關掉所有可能擋住的東西
+  if (popup2Overlay) popup2Overlay.style.display = "none";
+  if (photoFinishOverlay) photoFinishOverlay.style.display = "none";
+  if (filterSelectOverlay) filterSelectOverlay.style.display = "none";
+
+  if (!intro2Container || !intro2Video) {
+    console.warn("⚠️ intro2Container / intro2Video 不存在");
+    // 直接進文字濾鏡
+    filterPhase = 2;
+    overlayStep = 7;
+    startCenterCountdown(10);
+    if (typeof startTextFilter === "function") startTextFilter();
+    else if (typeof window.startTextFilter === "function") window.startTextFilter();
+    return;
+  }
+
+  // ✅ 強制顯示到最上層
+  intro2Container.style.display = "flex";
+  intro2Container.style.zIndex  = "9998";
+  intro2Container.style.position = "fixed";
+  intro2Container.style.left = "0";
+  intro2Container.style.top  = "0";
+  intro2Container.style.width = "100%";
+  intro2Container.style.height = "100%";
+
+  intro2Video.currentTime = 0;
+  intro2Video.muted = false;
+  intro2Video.volume = 1;
+
+  const p = intro2Video.play();
+  if (p && typeof p.catch === "function") {
+    p.catch(err => console.error("待機動畫2 播放失敗：", err));
+  }
+
+  intro2Video.onended = () => {
+    intro2Video.onended = null;
+    intro2Container.style.display = "none";
+
+    // 進入文字濾鏡
+    filterPhase = 2;
+    overlayStep = 7;
+
+    // ✅ 文字濾鏡倒數 10 秒（你 textFilter.js 也會 setTimeout 拍照）
+    startCenterCountdown(10);
+
+    if (typeof startTextFilter === "function") {
+      startTextFilter();
+    } else if (typeof window.startTextFilter === "function") {
+      window.startTextFilter();
+    } else {
+      console.warn("⚠️ startTextFilter 尚未定義（請確認 textFilter.js 有載入）");
+    }
+  };
+}
+
+// 08：NEXT → 動畫2 → 文字
 if (btnPopup2Next) {
   btnPopup2Next.addEventListener("click", () => {
-    console.log("▶ 08 NEXT → 播放待機動畫2 → 濾鏡二（文字）");
-
-    popup2Overlay.style.display     = "none";
-    photoFinishOverlay.style.display = "none";
-
-    if (intro2Container && intro2Video) {
-      intro2Container.style.display = "flex";
-      intro2Video.currentTime = 0;
-
-      intro2Video.play().catch(err => {
-        console.error("待機動畫2 播放失敗：", err);
-      });
-
-      intro2Video.onended = () => {
-        intro2Video.onended = null;
-        intro2Container.style.display = "none";
-
-        filterPhase = 2;
-        overlayStep = 7;
-
-        if (typeof startTextFilter === "function") {
-          startTextFilter();
-        } else if (typeof window !== "undefined" && typeof window.startTextFilter === "function") {
-          window.startTextFilter();
-        } else {
-          console.warn("⚠️ startTextFilter 尚未定義，請確認 textFilter.js 是否有載入成功");
-        }
-      };
-    } else {
-      filterPhase = 2;
-      overlayStep = 7;
-
-      if (typeof startTextFilter === "function") {
-        startTextFilter();
-      } else if (typeof window !== "undefined" && typeof window.startTextFilter === "function") {
-        window.startTextFilter();
-      } else {
-        console.warn("⚠️ startTextFilter 尚未定義，請確認 textFilter.js 是否有載入成功");
-      }
-    }
+    console.log("▶ 08 NEXT → 動畫2 → 文字濾鏡");
+    overlayStep = 7;
+    showIntro2ThenStartText();
   });
 }
 
-// 09 跳出視窗3：OFF / NEXT → IG
+// 09：OFF
 if (btnPopup3Off) {
   btnPopup3Off.addEventListener("click", () => {
-    console.log("🟡 09 OFF → 回到 07 打卡畫面 / OFF 流程");
-
-    popup3Overlay.style.display = "none";
-
-    if (photoFinishOverlay) {
-      photoFinishOverlay.style.display = "flex";
-    }
-
+    if (popup3Overlay) popup3Overlay.style.display = "none";
+    if (photoFinishOverlay) photoFinishOverlay.style.display = "flex";
     overlayStep = 10;
   });
 }
 
+// 09：NEXT → IG
 if (btnPopup3Next) {
   btnPopup3Next.addEventListener("click", () => {
-    console.log("🟢 09 NEXT → 進入 IG 發文頁");
+    if (popup3Overlay) popup3Overlay.style.display = "none";
+    if (postOverlay) postOverlay.style.display = "flex";
+    if (arScene) arScene.style.display = "none";
 
-    popup3Overlay.style.display = "none";
+    stopCenterCountdown();
+    stopHandsCamera();
 
-    if (postOverlay) {
-      postOverlay.style.display = "flex";
-    }
-    if (arScene) {
-      arScene.style.display = "none";
-    }
+    if (typeof initPostUI === "function") initPostUI();
+    else if (typeof window.initPostUI === "function") window.initPostUI();
 
-    initPostUI();
     overlayStep = 9;
   });
 }
 
-// ===============================
-//   DOMContentLoaded：初始顯示狀態
-// ===============================
+
+// ----------------------------------
+// 12) DOMContentLoaded 初始化
+// ----------------------------------
 window.addEventListener("DOMContentLoaded", () => {
-  if (arScene)            arScene.style.display            = "none";
-  if (cameraOverlay)      cameraOverlay.style.display      = "none";
-  if (scanOverlay)        scanOverlay.style.display        = "none";
-  if (detectFinishOverlay)detectFinishOverlay.style.display= "none";
-  if (ratingOverlay)      ratingOverlay.style.display      = "none";
-  if (lowScoreOverlay)    lowScoreOverlay.style.display    = "none";
-  if (filterSelectOverlay)filterSelectOverlay.style.display= "none";
-  if (photoFinishOverlay) photoFinishOverlay.style.display = "none";
-  if (photoOffOverlay)    photoOffOverlay.style.display    = "none";
-  if (popup2Overlay)      popup2Overlay.style.display      = "none";
-  if (popup3Overlay)      popup3Overlay.style.display      = "none";
-  if (postOverlay)        postOverlay.style.display        = "none";
-  if (intro2Container)    intro2Container.style.display    = "none";
+  hideAllOverlays();
 
-  // 隱藏 07 的「繼續體驗」按鈕
-  if (btnContinue) btnContinue.style.display = "none";
+  if (arScene) arScene.style.display = "none";
 
-  // 偵測 07 何時出現 → 啟動 / 停止 8 秒計時
+  // 監聽 07 出現 → 8 秒自動跳
   if (photoFinishOverlay) {
     const obs = new MutationObserver(() => {
       const visible = window.getComputedStyle(photoFinishOverlay).display !== "none";
       if (visible) {
-        console.log("📸 07 顯示 → 啟動 8 秒自動跳轉");
+        overlayStep = 5;
         runAutoFrom07();
       } else {
         stopAutoFrom07();
       }
     });
-
-    obs.observe(photoFinishOverlay, {
-      attributes: true,
-      attributeFilter: ["style", "class"]
-    });
+    obs.observe(photoFinishOverlay, { attributes: true, attributeFilter: ["style", "class"] });
   }
 
-  // 開場動畫 1
+  // 開場動畫
   if (introContainer) {
     introContainer.style.display = "block";
     startIntroLoop();
   }
 
-  console.log("✅ DOMContentLoaded：初始化完成，待機動畫開始");
+  // 確保倒數元素存在（避免你說「怎麼都沒出現」）
+  ensureCountdownEl();
+
+  console.log("✅ script.js 初始化完成");
 });
+

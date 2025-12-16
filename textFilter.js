@@ -1,12 +1,13 @@
 // ===============================
 //   Part 3 : Text Filter (PNG Overlay)
 //   ✅ 刪除手勢
-//   ✅ 進入後 10 秒自動拍攝（只一次）
+//   ✅ 進入後顯示倒數（共用 mk-countdown）
+//   ✅ 10 秒自動拍攝（只一次）
 // ===============================
 
 // 文字濾鏡用的兩張圖
-const TEXT_BG_SRC      = "image/text2.png"; // 背景
-const TEXT_OVERLAY_SRC = "image/text1.png"; // 臉上 PNG
+const TEXT_BG_SRC      = "image/text2.png"; // 背景（文字-08）
+const TEXT_OVERLAY_SRC = "image/text1.png"; // 臉上 PNG（文字-07）
 
 // 預先載入背景，給拍照用
 const textBgImage = new Image();
@@ -75,8 +76,12 @@ function startTextFilter() {
   filterPhase = 2;
   overlayStep = 7;
 
-  // ✅ 進入文字濾鏡就開始 10 秒倒數自動拍照（每次進來都重設）
+  // ✅ 進入文字濾鏡：倒數顯示 + 10 秒自動拍照（每次進來都重設）
   autoTextShotLocked = false;
+
+  if (typeof stopMakeupCountdown === "function") stopMakeupCountdown();
+  if (typeof startMakeupCountdown === "function") startMakeupCountdown(AUTO_TEXT_SHOT_MS / 1000);
+
   if (autoTextShotTimer) clearTimeout(autoTextShotTimer);
   autoTextShotTimer = setTimeout(() => {
     if (autoTextShotLocked) return;
@@ -85,7 +90,7 @@ function startTextFilter() {
     takeTextPhoto();
   }, AUTO_TEXT_SHOT_MS);
 
-  // 已經啟動過就不要再開一次（但倒數已重設）
+  // 已經啟動過就不要再開一次（但倒數/拍照計時已重設）
   if (filterStarted) {
     console.log("🔤 文字濾鏡已啟動過，略過重新初始化");
     return;
@@ -150,8 +155,8 @@ function startTextFilter() {
   filterCam = new Camera(filterVideo, {
     onFrame: async () => {
       if (!filterVideo.videoWidth) return;
-
       if (fdBusy) return;
+
       fdBusy = true;
       try {
         await fd.send({ image: filterVideo });
@@ -164,7 +169,7 @@ function startTextFilter() {
   });
 
   filterCam.start();
-  console.log("🔤 文字 PNG 濾鏡已啟動（10 秒自動拍照 / 無手勢）");
+  console.log("🔤 文字 PNG 濾鏡已啟動（倒數顯示 / 10 秒自動拍照 / 無手勢）");
 }
 
 
@@ -179,6 +184,9 @@ function stopTextCamera() {
   }
   autoTextShotLocked = true;
 
+  // ✅ 關倒數
+  if (typeof stopMakeupCountdown === "function") stopMakeupCountdown();
+
   if (filterCam) {
     try { filterCam.stop(); }
     catch (e) { console.warn("stopTextCamera stop() 失敗：", e); }
@@ -191,7 +199,6 @@ function stopTextCamera() {
   }
 
   fdBusy = false;
-
   console.log("🔤 stopTextCamera：文字濾鏡鏡頭已關閉");
 }
 
@@ -200,6 +207,9 @@ function stopTextCamera() {
 //   自動拍照：文字濾鏡 → 07（後面邏輯不變）
 // ===============================
 function takeTextPhoto() {
+  // ✅ 關倒數（保險）
+  if (typeof stopMakeupCountdown === "function") stopMakeupCountdown();
+
   const vw = filterVideo.videoWidth;
   const vh = filterVideo.videoHeight;
 
@@ -260,6 +270,5 @@ function takeTextPhoto() {
   overlayStep = 5;
 
   stopTextCamera();
-
   console.log("📸 文字濾鏡拍照完成 → 07（已包含 文字-08）");
 }

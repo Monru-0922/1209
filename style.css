@@ -254,6 +254,20 @@ html, body {
   height: 120px;
 }
 
+.mk-countdown{
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 50;
+  font-size: 64px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 6px 18px rgba(0,0,0,.55);
+  display: none;
+  pointer-events: none;
+  transform: scale(var(--scale-factor));
+  transform-origin: top right;
+}
 /* ===============================
    08 / 09 跳出視窗
 =============================== */

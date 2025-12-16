@@ -49,8 +49,7 @@ function startMakeupCountdown(seconds) {
   mkCountdownEl.style.display = "block";
 
   mkCountdownTimer = setInterval(() => {
-    // ✅ 只要在任何濾鏡階段就顯示
-    // filterPhase: 1 = 美妝, 2 = 文字
+    // 只要在任何濾鏡階段就顯示：1=美妝, 2=文字
     if (filterPhase !== 1 && filterPhase !== 2) {
       stopMakeupCountdown();
       return;
@@ -74,6 +73,7 @@ function stopMakeupCountdown() {
   }
   if (mkCountdownEl) mkCountdownEl.style.display = "none";
 }
+
 
 // ===============================
 // 妝容素材
@@ -150,7 +150,8 @@ function startMakeupFilter() {
   // ✅ 啟動倒數
   startMakeupCountdown(AUTO_SHOT_MS / 1000);
 
-  // ✅ 自動拍照
+  // ✅ 自動拍照（先清掉舊的，避免重複）
+  if (autoShotTimer) clearTimeout(autoShotTimer);
   autoShotTimer = setTimeout(() => {
     if (isInMakeupMode && !autoShotLocked) {
       autoShotLocked = true;
@@ -168,25 +169,44 @@ function startMakeupFilter() {
         onFrame: async () => {
           if (!mkVideo.videoWidth || fmBusy || !shouldProcessFrame()) return;
           fmBusy = true;
-          await faceMesh.send({ image: mkVideo });
-          fmBusy = false;
+          try {
+            await faceMesh.send({ image: mkVideo });
+          } finally {
+            fmBusy = false;
+          }
         },
         width: 1080,
         height: 1920
       });
+
       mkCamera.start();
-    });
+    })
+    .catch(err => console.error("startMakeupFilter getUserMedia 失敗：", err));
 }
 
 
 // ===============================
-// FaceMesh 畫妝
+// FaceMesh 畫妝（粉底 / 唇 / 腮紅 / 眼影）
 // ===============================
-let fx=0, fy=0, fw=0, lx=0, ly=0, lw=0;
+let fx = 0, fy = 0, fw = 0;
+let lx = 0, ly = 0, lw = 0;
+
+// ✅ 讓第一幀不要從 0 慢慢追（避免一開始飄）
+let mkInited = false;
+
+const LIP_Y_OFFSET = -0.20;
+const FOUNDATION_SCALE = 4.5;
+
 const faceMesh = new FaceMesh({
   locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
 });
-faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:true });
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.6
+});
 
 faceMesh.onResults(res => {
   if (!mkVideo.videoWidth || !res.multiFaceLandmarks?.length) return;
@@ -197,41 +217,102 @@ faceMesh.onResults(res => {
   mkCanvas.width = mkRawBuffer.width = w;
   mkCanvas.height = mkRawBuffer.height = h;
 
+  // 鏡像相機
   mkRawCtx.save();
-  mkRawCtx.translate(w,0);
-  mkRawCtx.scale(-1,1);
-  mkRawCtx.drawImage(mkVideo,0,0,w,h);
+  mkRawCtx.translate(w, 0);
+  mkRawCtx.scale(-1, 1);
+  mkRawCtx.drawImage(mkVideo, 0, 0, w, h);
   mkRawCtx.restore();
 
-  mkCtx.clearRect(0,0,w,h);
-  mkCtx.drawImage(mkRawBuffer,0,0);
+  mkCtx.clearRect(0, 0, w, h);
+  mkCtx.drawImage(mkRawBuffer, 0, 0);
 
   const lm = res.multiFaceLandmarks[0];
-  const L = (1-lm[234].x)*w;
-  const R = (1-lm[454].x)*w;
-  const cx = (L+R)/2;
-  const cy = (lm[10].y*h + lm[152].y*h)/2;
-  const faceW = Math.abs(R-L)*4.5;
 
-  fx += (cx-fx)*0.25;
-  fy += (cy-fy)*0.25;
-  fw += (faceW-fw)*0.25;
+  // ----- 臉（粉底） -----
+  const L = (1 - lm[234].x) * w;
+  const R = (1 - lm[454].x) * w;
+  const T = lm[10].y * h;
+  const B = lm[152].y * h;
 
-  mkCtx.drawImage(faceImg, fx-fw/2, fy-fw/2+30, fw, fw);
+  const cx = (L + R) / 2;
+  const cy = (T + B) / 2;
+  const faceW = Math.abs(R - L) * FOUNDATION_SCALE;
 
-  const lX=(1-lm[61].x)*w, rX=(1-lm[291].x)*w;
-  const lipW=Math.abs(rX-lX)*16.1;
-  lx += ((lX+rX)/2-lx)*0.25;
-  ly += ((lm[13].y*h+lm[14].y*h)/2-ly)*0.25;
-  lw += (lipW-lw)*0.25;
+  if (!mkInited) {
+    fx = cx; fy = cy; fw = faceW;
+    mkInited = true;
+  } else {
+    fx += (cx - fx) * 0.25;
+    fy += (cy - fy) * 0.25;
+    fw += (faceW - fw) * 0.25;
+  }
 
-  mkCtx.drawImage(lipImg, lx-lw/2, ly-lw/2, lw, lw);
+  // ✅ 用圖片比例算高度（你原本用 fw,fw 會把臉拉伸）
+  const faceH = fw * (faceImg.height / faceImg.width || 1);
+  mkCtx.drawImage(faceImg, fx - fw / 2, fy - faceH / 2 + 30, fw, faceH);
 
-  const blushSize = fw*0.9;
-  mkCtx.globalAlpha=0.85;
-  mkCtx.drawImage(blushImg,(1-lm[234].x)*w-blushSize/2-60,lm[250].y*h-blushSize/2+8,blushSize,blushSize);
-  mkCtx.drawImage(blushImg,(1-lm[454].x)*w-blushSize/2-44,lm[454].y*h-blushSize/2+35,blushSize,blushSize);
-  mkCtx.globalAlpha=1;
+  // ----- 唇 -----
+  const lX = (1 - lm[61].x)  * w;
+  const rX = (1 - lm[291].x) * w;
+  const tY = lm[13].y * h;
+  const bY = lm[14].y * h;
+
+  const lipCX = (lX + rX) / 2;
+  const lipCY = ((tY + bY) / 2) + Math.abs(rX - lX) * LIP_Y_OFFSET;
+
+  const lipW = Math.abs(rX - lX) * 16.1;
+
+  if (!lw) {
+    lx = lipCX; ly = lipCY; lw = lipW;
+  } else {
+    lx += (lipCX - lx) * 0.25;
+    ly += (lipCY - ly) * 0.25;
+    lw += (lipW - lw) * 0.25;
+  }
+
+  const lipH = lw * (lipImg.height / lipImg.width || 1);
+  mkCtx.drawImage(lipImg, lx - lw / 2, ly - lipH / 2, lw, lipH);
+
+  // ----- 腮紅 -----
+  const blushSize = fw * 0.9;
+  mkCtx.save();
+  mkCtx.globalAlpha = 0.85;
+
+  mkCtx.drawImage(
+    blushImg,
+    (1 - lm[234].x) * w - blushSize / 2 - 60,
+    lm[250].y * h - blushSize / 2 + 8,
+    blushSize, blushSize
+  );
+
+  mkCtx.drawImage(
+    blushImg,
+    (1 - lm[454].x) * w - blushSize / 2 - 44,
+    lm[454].y * h - blushSize / 2 + 35,
+    blushSize, blushSize
+  );
+
+  mkCtx.restore();
+
+  // ✅✅✅ 眼影 / 眼線（加回來） ✅✅✅
+  const eyeW = fw * 0.22;
+  const eyeH = eyeW * (eyeImg.height / eyeImg.width || 1);
+
+  // 左眼
+  mkCtx.drawImage(
+    eyeImg,
+    (1 - lm[159].x) * w - eyeW / 2 + 2,
+    lm[159].y * h - eyeH / 2 + 3,
+    eyeW, eyeH
+  );
+
+  // 右眼（鏡像）
+  mkCtx.save();
+  mkCtx.translate((1 - lm[386].x) * w + 2, lm[386].y * h + 1.5);
+  mkCtx.scale(-1, 1);
+  mkCtx.drawImage(eyeImg, -eyeW / 2, -eyeH / 2, eyeW, eyeH);
+  mkCtx.restore();
 });
 
 
@@ -240,7 +321,7 @@ faceMesh.onResults(res => {
 // ===============================
 function takeMakeupPhoto() {
   const photo = mkCanvas.toDataURL("image/png");
-  localStorage.setItem("capturedImage", photo);
+  try { localStorage.setItem("capturedImage", photo); } catch {}
 
   uiPhotoFinish.src = photo;
   postImage.src = photo;
@@ -248,7 +329,10 @@ function takeMakeupPhoto() {
 
   isInMakeupMode = false;
   stopMakeupCountdown();
-  clearTimeout(autoShotTimer);
+
+  if (autoShotTimer) clearTimeout(autoShotTimer);
+  autoShotTimer = null;
+
   stopMakeupCamera();
 }
 
@@ -257,11 +341,15 @@ function takeMakeupPhoto() {
 // 關閉鏡頭
 // ===============================
 function stopMakeupCamera() {
-  if (mkCamera) mkCamera.stop();
+  if (mkCamera) {
+    try { mkCamera.stop(); } catch {}
+  }
   mkCamera = null;
 
   if (mkVideo.srcObject) {
-    mkVideo.srcObject.getTracks().forEach(t=>t.stop());
-    mkVideo.srcObject=null;
+    mkVideo.srcObject.getTracks().forEach(t => t.stop());
+    mkVideo.srcObject = null;
   }
+
+  fmBusy = false;
 }

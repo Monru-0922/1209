@@ -131,8 +131,10 @@ function ensureCountdownEl() {
   mkCountdownEl.id = "mk-countdown";
 
   // 你指定的樣式（直接寫在 JS，避免 CSS 沒套到）
-  mkCountdownEl.style.position = "absolute";
-  mkCountdownEl.style.left = "50%";
+  mkCountdownEl.id = "mk-countdown";
+  mkCountdownEl.className = "big-num";
+  mkCountdownEl.style.display = "none";  // 這行留著就好
+
   mkCountdownEl.style.top = "50%";
   mkCountdownEl.style.transform = "translate(-50%, -50%)";
   mkCountdownEl.style.fontSize = "180px";
@@ -535,18 +537,21 @@ function handleHandsResults(results) {
     } else if (overlayStep === 6) {
       stopHandsCamera();
       if (popup2Overlay) popup2Overlay.style.display = "none";
+      isOffFlow = true;
       if (photoOffOverlay) {
         photoOffOverlay.style.display = "flex";
-        photoOffOverlay.style.zIndex  = "50";
+        photoOffOverlay.style.zIndex  = "9999";
       }
-      overlayStep = 5;
+      if (btnEndOff) btnEndOff.style.display = "block";
+
+     overlayStep = 5;
     } else if (overlayStep === 8) {
       stopHandsCamera();
       if (popup3Overlay) popup3Overlay.style.display = "none";
       if (photoFinishOverlay) photoFinishOverlay.style.display = "flex";
       if (photoOffOverlay) {
         photoOffOverlay.style.display = "flex";
-        photoOffOverlay.style.zIndex  = "50";
+        photoOffOverlay.style.zIndex  = "9999";
       }
       overlayStep = 5;
     }
@@ -793,4 +798,3 @@ window.addEventListener("DOMContentLoaded", () => {
 
   console.log("✅ script.js 初始化完成");
 });
-
